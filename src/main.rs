@@ -113,17 +113,18 @@ fn get_handle_info(next_address: isize) -> SYSTEM_HANDLE_INFORMATION {
     }
 }
 
-fn get_handle_entry(next_address: isize) -> SYSTEM_HANDLE_TABLE_ENTRY_INFO {
+fn get_handle_entry(base_address: isize, index: &isize) -> SYSTEM_HANDLE_TABLE_ENTRY_INFO {
     unsafe {
-        let mut system_process_info: SYSTEM_HANDLE_TABLE_ENTRY_INFO = std::mem::zeroed();
+        let mut system_handle_table_entry: SYSTEM_HANDLE_TABLE_ENTRY_INFO = std::mem::zeroed();
 
         // base_address の該当オフセット値から SYSTEM_PROCESS_INFORMATION 構造体の情報をプロセス1つ分取得
+        let next_address = base_address + std::mem::size_of::<SYSTEM_HANDLE_TABLE_ENTRY_INFO>() as isize * index;
         ReadProcessMemory(
-            GetCurrentProcess(), next_address as *const c_void, &mut system_process_info as *mut _ as *mut c_void, 
-            std::mem::size_of::<SYSTEM_HANDLE_INFORMATION>() as usize, std::ptr::null_mut()
+            GetCurrentProcess(), next_address as *const c_void, &mut system_handle_table_entry as *mut _ as *mut c_void, 
+            std::mem::size_of::<SYSTEM_HANDLE_TABLE_ENTRY_INFO>() as usize, std::ptr::null_mut()
         );
 
-        system_process_info
+        system_handle_table_entry
     }
 }
 
@@ -137,9 +138,9 @@ fn main() {
 
         let mut next_address = base_address as isize;
         // すべてのプロセス情報を取得
-        for i in 0..system_handle_info.NumberOfHandles {
-            let handle_info = system_handle_info.Handles[i as usize];
-            println!("handle {:?} {:?}", handle_info.HandleValue, handle_info.ObjectTypeIndex);
+        for i in 0..system_handle_info.NumberOfHandles as isize {
+            let handle_info = get_handle_entry(base_address as isize, &i);
+            println!("handle {:?} {:?} {:?} {:?}", handle_info.HandleValue, handle_info.ObjectTypeIndex, handle_info.CreatorBackTraceIndex, handle_info.UniqueProcessId);
         }
         VirtualFree(base_address, 0x0, MEM_RELEASE);
     }
