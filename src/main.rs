@@ -99,14 +99,14 @@ fn get_proc_id(proc_info: SYSTEM_PROCESS_INFORMATION) -> u32 {
 }
 
 ///
-fn get_handle_info(next_address: isize) -> SYSTEM_PROCESS_INFORMATION {
+fn get_handle_info(next_address: isize) -> SYSTEM_HANDLE_INFORMATION {
     unsafe {
-        let mut system_process_info: SYSTEM_PROCESS_INFORMATION = std::mem::zeroed();
+        let mut system_process_info: SYSTEM_HANDLE_INFORMATION = std::mem::zeroed();
 
         // base_address の該当オフセット値から SYSTEM_PROCESS_INFORMATION 構造体の情報をプロセス1つ分取得
         ReadProcessMemory(
             GetCurrentProcess(), next_address as *const c_void, &mut system_process_info as *mut _ as *mut c_void, 
-            std::mem::size_of::<SYSTEM_PROCESS_INFORMATION>() as usize, std::ptr::null_mut()
+            std::mem::size_of::<SYSTEM_HANDLE_INFORMATION>() as usize, std::ptr::null_mut()
         );
 
         system_process_info
@@ -119,26 +119,14 @@ fn main() {
         let base_address = get_system_handle_info(0x10000);
 
         // base_address に取得したプロセス情報を SYSTEM_PROCESS_INFORMATION 構造体 system_process_info に格納
-        let mut system_process_info = get_proc_info(base_address as isize);
+        let mut system_handle_info = get_handle_info(base_address as isize);
 
         let mut next_address = base_address as isize;
         // すべてのプロセス情報を取得
-        loop {
-            // 次のプロセス情報の格納先アドレス
-            next_address += system_process_info.NextEntryOffset as isize;
-
-            // base_address に取得したプロセス情報を SYSTEM_PROCESS_INFORMATION 構造体 system_process_info に格納
-            let system_handle_info = next_address as SYSTEM_PROCESS_INFORMATION;
-            
-            // プロセス名とプロセスIDを表示
-            println!("hwnd {:?}", system_handle_info.UniqueProcessId);
-
-            // すべてのプロセス情報を取得したら終了
-            if system_process_info.NextEntryOffset == 0 {
-                break;
-            }
-        }   
-
+        for i in 0..system_handle_info.NumberOfHandles {
+            let handle_info = system_handle_info.Handles[i as usize];
+            println!("handle {:?} {:?}", handle_info.HandleValue, handle_info.ObjectTypeIndex);
+        }
         VirtualFree(base_address, 0x0, MEM_RELEASE);
     }
 }
