@@ -113,6 +113,20 @@ fn get_handle_info(next_address: isize) -> SYSTEM_HANDLE_INFORMATION {
     }
 }
 
+fn get_handle_entry(next_address: isize) -> SYSTEM_HANDLE_TABLE_ENTRY_INFO {
+    unsafe {
+        let mut system_process_info: SYSTEM_HANDLE_TABLE_ENTRY_INFO = std::mem::zeroed();
+
+        // base_address の該当オフセット値から SYSTEM_PROCESS_INFORMATION 構造体の情報をプロセス1つ分取得
+        ReadProcessMemory(
+            GetCurrentProcess(), next_address as *const c_void, &mut system_process_info as *mut _ as *mut c_void, 
+            std::mem::size_of::<SYSTEM_HANDLE_INFORMATION>() as usize, std::ptr::null_mut()
+        );
+
+        system_process_info
+    }
+}
+
 fn main() {
     unsafe {
         // プロセス情報を取得
