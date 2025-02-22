@@ -67,7 +67,7 @@ fn check_file_locks(file_path: &str) -> Result<(), String> {
         CreateFileW(
             wide_file_path.as_ptr(),
             0, // 読み取り/書き込みモード（適切なアクセスモードに変更）
-            FILE_SHARE_READ | FILE_SHARE_WRITE, // 読み取り・書き込み共有
+            FILE_SHARE_READ | FILE_SHARE_WRITE, // 他のプロセスによる読み取り・書き込み共有を許可
             ptr::null_mut(),
             OPEN_EXISTING,
             0,
@@ -76,16 +76,14 @@ fn check_file_locks(file_path: &str) -> Result<(), String> {
     };
 
     if file_handle == INVALID_HANDLE_VALUE {
-        return Err(format!("Failed to open file: {}", unsafe { GetLastError() }));
-    }
+        let error_code = unsafe { GetLastError() };
 
-    // ファイル情報のクエリ
-    match query_file_info(file_handle) {
-        Ok(_) => {
-            println!("File information successfully queried.");
-        }
-        Err(e) => {
-            return Err(e);
+        if error_code == 32 { // ERROR_SHARING_VIOLATION (ファイルが他のプロセスにロックされている)
+            return Err("File is locked by another process.".to_string());
+        } else if error_code == 2 { // ERROR_FILE_NOT_FOUND
+            return Err("File not found.".to_string());
+        } else {
+            return Err(format!("Failed to open file: error code {}", error_code));
         }
     }
 
@@ -97,8 +95,7 @@ fn check_file_locks(file_path: &str) -> Result<(), String> {
 }
 
 fn main() {
-    //let file_path = "C:\\path\\to\\file.txt";  // ここにチェックしたいファイルパスを指定
-    let file_path = "C:\\Users\\ytani\\Desktop\\test\\0519\\0defd59e40a79b8f11e3a5b11a52fb0d-1024x795.jpeg";
+    let file_path = "C:\\Users\\ytani\\Desktop\\winfuser_test\\test.xlsx";
     match check_file_locks(file_path) {
         Ok(_) => println!("File is not locked by any process."),
         Err(e) => println!("Error: {}", e),
