@@ -3,11 +3,9 @@ extern crate ntapi;
 
 use winapi::um::fileapi::{CreateFileW, OPEN_EXISTING};
 use winapi::um::winnt::{FILE_SHARE_READ, FILE_SHARE_WRITE, HANDLE};
-use ntapi::ntioapi::IO_STATUS_BLOCK;
-use winapi::um::handleapi::CloseHandle;
+use ntapi::ntioapi::{IO_STATUS_BLOCK, NtQueryInformationFile, FILE_BASIC_INFORMATION};
+use winapi::um::handleapi::{CloseHandle, INVALID_HANDLE_VALUE};
 use winapi::um::errhandlingapi::GetLastError;
-use winapi::um::handleapi::INVALID_HANDLE_VALUE;
-use ntapi::ntioapi::{NtQueryInformationFile, FileBasicInformation};
 use std::ptr;
 use std::ffi::CString;
 use std::mem;
@@ -27,17 +25,17 @@ fn query_file_info(handle: HANDLE) -> Result<(), String> {
     // IO_STATUS_BLOCKを準備
     let mut io_status_block: IO_STATUS_BLOCK = unsafe { mem::zeroed() };
 
-    // FileInformationのバッファ
-    let mut file_info: [u8; 1024] = [0; 1024];  // バッファのサイズを適切に設定
+    // FILE_BASIC_INFORMATION構造体を準備
+    let mut file_info: FILE_BASIC_INFORMATION = unsafe { mem::zeroed() };
 
     // NtQueryInformationFileの呼び出し
     let status = unsafe {
         NtQueryInformationFile(
             handle,
             &mut io_status_block,
-            file_info.as_mut_ptr() as *mut _,
-            file_info.len() as u32,
-            FileBasicInformation, // 必要なFileInformationClassを指定
+            &mut file_info as *mut _ as *mut _,
+            std::mem::size_of::<FILE_BASIC_INFORMATION>() as u32,
+            4, // FileInformationClass::FileBasicInformationを整数値で指定
         )
     };
 
@@ -45,7 +43,19 @@ fn query_file_info(handle: HANDLE) -> Result<(), String> {
         return Err(format!("Error querying file information: {:?}", status));
     }
 
-    // 必要に応じてfile_infoの解析を行う（ここでは省略）
+    // FILE_BASIC_INFORMATIONの内容を手動で表示
+    println!("File Basic Information:");
+    
+    unsafe {
+        // 各時間情報をi64として表示
+        println!("  CreationTime: {}", file_info.CreationTime.QuadPart());
+        println!("  LastAccessTime: {}", file_info.LastAccessTime.QuadPart());
+        println!("  LastWriteTime: {}", file_info.LastWriteTime.QuadPart());
+        println!("  ChangeTime: {}", file_info.ChangeTime.QuadPart());
+    }
+    
+    // FileAttributesはそのまま表示
+    println!("  FileAttributes: {}", file_info.FileAttributes);
 
     Ok(())
 }
