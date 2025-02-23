@@ -22,11 +22,6 @@ use winapi::um::psapi::{EnumProcesses, EnumProcessModulesEx, GetModuleBaseNameA}
 use winapi::shared::minwindef::{MAX_PATH, FALSE};
 use std::ffi::OsStr;
 use std::os::windows::ffi::OsStrExt;
-use std::sync::{Arc, Mutex};
-use std::thread;
-use core::time::Duration;
-use std::sync::mpsc::channel;
-use std::time::Instant;
 
 const SYSTEM_HANDLE_INFORMATION_CLASS: u32 = 16;
 
@@ -168,82 +163,54 @@ fn get_handle_type(handle: HANDLE) -> Option<String> {
     Some(type_name)
 }
 
-fn query_object_with_timeout(handle: HANDLE, timeout_ms: u64) -> Result<Vec<u8>, String> {
-    let (sender, receiver) = channel();
-    let handle_arc = Arc::new(Mutex::new(handle));
-
-    thread::spawn({
-        let handle_arc = Arc::clone(&handle_arc);
-        move || {
-            let mut return_length: u32 = 0;
-            let initial_size = 1024;
-            let mut buffer = valloc(initial_size);
-
-            let status = loop {
-                let status = unsafe {
-                    NtQueryObject(
-                        *handle_arc.lock().unwrap(),
-                        ObjectNameInformation,
-                        buffer,
-                        initial_size as u32,
-                        &mut return_length,
-                    )
-                };
-
-                if status == winapi::shared::ntstatus::STATUS_BUFFER_TOO_SMALL || status == winapi::shared::ntstatus::STATUS_INFO_LENGTH_MISMATCH {
-                    vfree(buffer, initial_size as usize);
-                    buffer = valloc(return_length as usize);
-                    continue;
-                }
-
-                if !NT_SUCCESS(status) {
-                    sender.send(Err(format!("Failed to query object: {}", status))).unwrap();
-                    return;
-                }
-
-                let buffer_vec = unsafe { Vec::from_raw_parts(buffer as *mut u8, return_length as usize, return_length as usize) };
-                sender.send(Ok(buffer_vec)).unwrap();
-                return;
-            };
-        }
-    });
-
-    let start = Instant::now();
-    while start.elapsed() < Duration::from_millis(timeout_ms) {
-        if let Ok(result) = receiver.try_recv() {
-            return result;
-        }
-    }
-
-    Err("Timed out".to_string())
-}
-
 fn get_handle_info(handle: HANDLE) -> Option<String> {
-    let result = query_object_with_timeout(handle, 5000); // 5秒のタイムアウト
+    let initial_size = 1024;
+    let mut return_length: u32 = initial_size;
+    let mut buffer = valloc(initial_size as usize);
 
-    match result {
-        Ok(buffer) => {
-            let name_info = unsafe { &*(buffer.as_ptr() as *const OBJECT_NAME_INFORMATION) };
-            if name_info.Name.Length == 0 {
-                eprintln!("name length is 0");
-                return None;
-            }
+    let status = loop {
+        let before_length = return_length;
+        let status = unsafe {
+            NtQueryObject(
+                handle,
+                ObjectNameInformation,
+                buffer,
+                return_length as u32,
+                &mut return_length,
+            )
+        };
 
-            let name_slice = unsafe {
-                std::slice::from_raw_parts(
-                    name_info.Name.Buffer,
-                    (name_info.Name.Length / 2) as usize,
-                )
-            };
-
-            let device_path = String::from_utf16_lossy(name_slice);
-            Some(get_dos_device_path(&device_path))
-        },
-        Err(e) => {
-            eprintln!("Error querying object: {}", e);
-            None
+        if status == winapi::shared::ntstatus::STATUS_BUFFER_TOO_SMALL || status == winapi::shared::ntstatus::STATUS_INFO_LENGTH_MISMATCH {
+            vfree(buffer, before_length as usize);
+            buffer = valloc(return_length as usize);
+            continue;
         }
+
+        break status;
+    };
+
+    if !NT_SUCCESS(status) {
+        eprintln!("Failed to query system information: {}", status);
+        vfree(buffer, return_length as usize);
+        return None;
     }
+
+    let name_info = unsafe { &*(buffer as *const OBJECT_NAME_INFORMATION) };
+    if name_info.Name.Length == 0 {
+        eprintln!("name length is 0");
+        vfree(buffer, return_length as usize);
+        return None;
+    }
+
+    let name_slice = unsafe {
+        std::slice::from_raw_parts(
+            name_info.Name.Buffer,
+            (name_info.Name.Length / 2) as usize,
+        )
+    };
+
+    let device_path = String::from_utf16_lossy(name_slice);
+    Some(get_dos_device_path(&device_path))
 }
 
 fn main() {
@@ -318,11 +285,11 @@ fn main() {
         else {
             continue;
         }
-        
+
         let target_process_handle = unsafe {
             OpenProcess(PROCESS_DUP_HANDLE, 0, entry.UniqueProcessId as u32)
         };
-
+        
         let mut duplicated_handle: HANDLE = ptr::null_mut();
         let duplicate_status = unsafe {
             DuplicateHandle(
