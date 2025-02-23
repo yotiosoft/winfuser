@@ -6,7 +6,7 @@ use ntapi::ntexapi::{NtQuerySystemInformation, SystemObjectInformation, SYSTEM_H
 use std::ptr;
 use std::mem;
 use ntapi::ntexapi::{SYSTEM_HANDLE_INFORMATION, SYSTEM_HANDLE_TABLE_ENTRY_INFO, SystemExtendedHandleInformation};
-use ntapi::ntobapi::{OBJECT_BASIC_INFORMATION, NtQueryObject, ObjectBasicInformation, ObjectTypesInformation, OBJECT_TYPE_INFORMATION, ObjectNameInformation, OBJECT_NAME_INFORMATION};
+use ntapi::ntobapi::{OBJECT_BASIC_INFORMATION, NtQueryObject, ObjectBasicInformation, ObjectTypeInformation, OBJECT_TYPE_INFORMATION, ObjectNameInformation, OBJECT_NAME_INFORMATION};
 use winapi::um::memoryapi::*;
 use winapi::um::processthreadsapi::*;
 use winapi::um::winnt::{ MEM_COMMIT, MEM_RELEASE, PAGE_READWRITE, GENERIC_READ, GENERIC_WRITE, FILE_SHARE_READ, FILE_SHARE_WRITE, FILE_ATTRIBUTE_NORMAL };
@@ -99,10 +99,75 @@ fn get_dos_device_path(device_path: &str) -> String {
     device_path.to_string()
 }
 
+fn get_handle_type(handle: HANDLE) -> Option<String> {
+    let initial_size = 1024;
+    let mut return_length: u32 = initial_size;
+    let mut buffer = valloc(return_length as usize);
+
+    let status = loop {
+        let status = unsafe {
+            NtQueryObject(
+                handle,
+                ObjectTypeInformation,
+                buffer,
+                return_length,
+                &mut return_length,
+            )
+        };
+
+        if status == STATUS_BUFFER_TOO_SMALL || status == STATUS_INFO_LENGTH_MISMATCH {
+            vfree(buffer);
+            buffer = valloc(return_length as usize);
+            continue;
+        }
+
+        break status;
+    };
+
+    if !NT_SUCCESS(status) {
+        //eprintln!("Failed to query system information: {}", status);
+        return None;
+    }
+
+    let type_info = unsafe { &*(buffer as *const OBJECT_TYPE_INFORMATION) };
+    let type_info_vec = vec![0u8; return_length as usize];
+    unsafe {
+        ReadProcessMemory(
+            GetCurrentProcess(),
+            type_info as *const OBJECT_TYPE_INFORMATION as *const winapi::ctypes::c_void,
+            type_info_vec.as_ptr() as *mut winapi::ctypes::c_void,
+            return_length as usize,
+            ptr::null_mut(),
+        );
+    }
+    if type_info.TypeName.Length == 0 {
+        vfree(buffer);
+        return None;
+    }
+
+    let name_buf = vec![0u16; type_info.TypeName.Length as usize];
+    unsafe {
+        ReadProcessMemory(
+            GetCurrentProcess(),
+            type_info.TypeName.Buffer as *const winapi::ctypes::c_void,
+            name_buf.as_ptr() as *mut winapi::ctypes::c_void,
+            type_info.TypeName.Length as usize,
+            ptr::null_mut(),
+        );
+    }
+
+    let type_name = String::from_utf16_lossy(&name_buf);
+    vfree(buffer);
+
+    Some(type_name)
+}
+
 fn get_handle_info(handle: HANDLE) -> Option<String> {
     let mut return_length: u32 = 0;
     let initial_size = 1024;
     let mut buffer = valloc(initial_size);
+
+    println!("handle = {:?}", handle);
 
     let status = loop {
         let status = unsafe {
@@ -206,12 +271,23 @@ fn main() {
             continue;
         }
 
+        // get handle type
+        let handle_type = get_handle_type(entry.HandleValue as HANDLE);
+        if let Some(handle_type) = handle_type {
+            if !handle_type.starts_with("File") {
+                continue;
+            }
+        }
+        else {
+            continue;
+        }
+
         if before_pid != entry.UniqueProcessId {
             if !target_handle.is_null() {
                 unsafe { CloseHandle(target_handle) };
             }
             target_handle = unsafe {
-                //OpenProcess(0x0410, 0, entry.UniqueProcessId as u32)
+                OpenProcess(0x0410, 0, entry.UniqueProcessId as u32)
             };
         }
         before_pid = entry.UniqueProcessId;
