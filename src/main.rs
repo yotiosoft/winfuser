@@ -163,7 +163,7 @@ fn get_handle_type(handle: HANDLE) -> Option<String> {
     Some(type_name)
 }
 
-fn get_handle_info(handle: HANDLE, target_process: HANDLE) -> Option<String> {
+fn get_handle_info(handle: HANDLE) -> Option<String> {
     let initial_size = 1024;
     let mut return_length: u32 = initial_size;
     let mut buffer = valloc(initial_size as usize);
@@ -263,8 +263,6 @@ fn main() {
     }
 
     let handle_info = unsafe { &*(buffer as *const SYSTEM_HANDLE_INFORMATION_EX) };
-    let mut target_handle: HANDLE = ptr::null_mut();
-    let mut before_pid = 0;
     println!("handle_info.NumberOfHandles = {}", handle_info.NumberOfHandles);
     for i in 0..handle_info.NumberOfHandles {
         let entry = unsafe { &*(handle_info.Handles.as_ptr().add(i as usize) as *const SYSTEM_HANDLE_TABLE_ENTRY_INFO_EX) };
@@ -277,16 +275,6 @@ fn main() {
             continue;
         }
 
-        if before_pid != entry.UniqueProcessId {
-            if !target_handle.is_null() {
-                unsafe { CloseHandle(target_handle) };
-            }
-            target_handle = unsafe {
-                OpenProcess(PROCESS_DUP_HANDLE, 0, entry.UniqueProcessId as u32)
-            };
-        }
-        before_pid = entry.UniqueProcessId;
-
         // get handle type
         let handle_type = get_handle_type(entry.HandleValue as HANDLE);
         if let Some(handle_type) = handle_type {
@@ -298,10 +286,14 @@ fn main() {
             continue;
         }
         
+        let target_process_handle = unsafe {
+            OpenProcess(PROCESS_DUP_HANDLE, 0, entry.UniqueProcessId as u32)
+        };
+
         let mut duplicated_handle: HANDLE = ptr::null_mut();
         let duplicate_status = unsafe {
             DuplicateHandle(
-                target_handle,
+                target_process_handle,
                 entry.HandleValue as HANDLE,
                 GetCurrentProcess(),
                 &mut duplicated_handle,
@@ -311,13 +303,14 @@ fn main() {
             )
         };
 
+        unsafe { CloseHandle(target_process_handle) };
+
         if duplicate_status == FALSE {
             println!("Failed to duplicate handle");
             continue;
         }
         
-        println!("pid: {} handle: {}", entry.UniqueProcessId, entry.HandleValue);
-        if let Some(handle_info) = get_handle_info(duplicated_handle, target_handle) {
+        if let Some(handle_info) = get_handle_info(duplicated_handle) {
             println!("pid: {} filepath: {}", entry.UniqueProcessId, handle_info);
             if handle_info == file_path.to_str().unwrap() {
                 if let Some(process_name) = get_process_name(entry.UniqueProcessId as u32) {
@@ -327,9 +320,6 @@ fn main() {
         }
 
         unsafe { CloseHandle(duplicated_handle) };
-    }
-    if !target_handle.is_null() {
-        unsafe { CloseHandle(target_handle) };
     }
 
     unsafe { CloseHandle(file_handle) };
