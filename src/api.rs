@@ -1,20 +1,16 @@
-use winapi::um::handleapi::{INVALID_HANDLE_VALUE, CloseHandle, DuplicateHandle};
+use winapi::um::handleapi::{ CloseHandle, DuplicateHandle };
 use ntapi::ntexapi::NtQuerySystemInformation;
-use std::fmt::Debug;
 use std::ptr;
-use std::mem;
-use ntapi::ntobapi::{OBJECT_BASIC_INFORMATION, NtQueryObject, ObjectBasicInformation, ObjectTypeInformation, OBJECT_TYPE_INFORMATION, ObjectNameInformation, OBJECT_NAME_INFORMATION};
+use ntapi::ntobapi::NtQueryObject;
 use winapi::um::memoryapi::*;
 use winapi::um::processthreadsapi::*;
 use winapi::um::winnt::{ MEM_COMMIT, MEM_RELEASE, PAGE_READWRITE, DUPLICATE_SAME_ACCESS };
-use winapi::um::memoryapi::{ FILE_MAP_WRITE };
-use winapi::shared::ntdef::{NT_SUCCESS, UNICODE_STRING, HANDLE};
-use winapi::shared::ntstatus::{STATUS_BUFFER_TOO_SMALL, STATUS_INFO_LENGTH_MISMATCH};
-use winapi::um::memoryapi::{VirtualAlloc, VirtualFree};
-use std::fs::File;
-use winapi::um::fileapi::{OPEN_EXISTING, CreateFileA, CreateDirectoryA, BY_HANDLE_FILE_INFORMATION, FILE_ID_BOTH_DIR_INFO, GetFileInformationByHandle, QueryDosDeviceW};
+use winapi::shared::ntdef::{ NT_SUCCESS, HANDLE };
+use winapi::shared::ntstatus::{ STATUS_BUFFER_TOO_SMALL, STATUS_INFO_LENGTH_MISMATCH };
+use winapi::um::memoryapi::{ VirtualAlloc, VirtualFree };
+use winapi::um::fileapi::QueryDosDeviceW;
 use winapi::um::processthreadsapi::OpenProcess;
-use winapi::um::psapi::{EnumProcesses, EnumProcessModulesEx, GetModuleBaseNameA};
+use winapi::um::psapi::GetModuleBaseNameA;
 use winapi::shared::minwindef::{MAX_PATH, FALSE};
 pub type STATUS = i32;
 
