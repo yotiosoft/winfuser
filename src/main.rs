@@ -9,22 +9,28 @@ use ntapi::ntexapi::{SYSTEM_HANDLE_INFORMATION, SYSTEM_HANDLE_TABLE_ENTRY_INFO, 
 use ntapi::ntobapi::{OBJECT_BASIC_INFORMATION, NtQueryObject, ObjectBasicInformation, ObjectTypesInformation, OBJECT_TYPE_INFORMATION, ObjectNameInformation, OBJECT_NAME_INFORMATION};
 use winapi::um::memoryapi::*;
 use winapi::um::processthreadsapi::*;
-use winapi::um::winnt::{ MEM_COMMIT, MEM_RELEASE, PAGE_READWRITE };
+use winapi::um::winnt::{ MEM_COMMIT, MEM_RELEASE, PAGE_READWRITE, GENERIC_READ, GENERIC_WRITE, FILE_SHARE_READ, FILE_SHARE_WRITE, FILE_ATTRIBUTE_NORMAL };
+use winapi::um::memoryapi::{ FILE_MAP_WRITE };
 use winapi::shared::ntdef::{NT_SUCCESS, UNICODE_STRING, HANDLE};
 use winapi::shared::ntstatus::{STATUS_BUFFER_TOO_SMALL, STATUS_INFO_LENGTH_MISMATCH};
 use winapi::um::memoryapi::{VirtualAlloc, VirtualFree};
 use std::ffi::CString;
-use winapi::um::winnt::{FILE_SHARE_READ, FILE_SHARE_WRITE, FILE_ATTRIBUTE_NORMAL, GENERIC_READ, GENERIC_WRITE};
-use winapi::um::fileapi::{OPEN_EXISTING, CreateFileA, BY_HANDLE_FILE_INFORMATION, FILE_ID_BOTH_DIR_INFO, GetFileInformationByHandle};
+use std::fs::File;
+use winapi::um::fileapi::{OPEN_EXISTING, CreateFileA, BY_HANDLE_FILE_INFORMATION, FILE_ID_BOTH_DIR_INFO, GetFileInformationByHandle, QueryDosDeviceW};
 use winapi::um::processthreadsapi::OpenProcess;
 use winapi::um::psapi::{EnumProcesses, EnumProcessModulesEx, GetModuleBaseNameA};
+use winapi::shared::minwindef::MAX_PATH;
+use std::ffi::OsStr;
+use std::os::windows::ffi::OsStrExt;
 
 const SYSTEM_HANDLE_INFORMATION_CLASS: u32 = 16;
 
 fn valloc(size: usize) -> *mut winapi::ctypes::c_void {
-    unsafe {
-        VirtualAlloc(std::ptr::null_mut(), size, MEM_COMMIT, PAGE_READWRITE)
-    }
+    unsafe { VirtualAlloc(ptr::null_mut(), size, MEM_COMMIT, PAGE_READWRITE) }
+}
+
+fn vfree(buffer: *mut winapi::ctypes::c_void) -> i32 {
+    unsafe { VirtualFree(buffer, 0, MEM_RELEASE) }
 }
 
 fn get_process_name(process_id: u32) -> Option<String> {
@@ -52,10 +58,49 @@ fn get_process_name(process_id: u32) -> Option<String> {
     }
 }
 
+fn query_dos_device_path(drive_letter: char) -> Option<String> {
+    let drive_path = format!("{}:", drive_letter);
+    let mut buffer: Vec<u16> = vec![0; MAX_PATH];
+    let device_name_u16 = OsStr::new(drive_path.as_str()).encode_wide().chain(Some(0).into_iter()).collect::<Vec<_>>();
+    let device_name_u16 = device_name_u16.as_ptr();
+
+    let result = unsafe {
+        QueryDosDeviceW(
+            device_name_u16,
+            buffer.as_mut_ptr(),
+            buffer.len() as u32,
+        )
+    };
+
+    if result == 0 {
+        return None;
+    }
+
+    let mut path = String::from_utf16_lossy(&buffer[..result as usize]);
+
+    // 末尾のヌル文字（0）を取り除く
+    if let Some(null_pos) = path.find('\0') {
+        path.truncate(null_pos);
+    }
+
+    Some(path)
+}
+
+fn get_dos_device_path(device_path: &str) -> String {
+    for drive_letter in 'A'..='Z' {
+        if let Some(dos_path) = query_dos_device_path(drive_letter) {
+            let dos_path_trimmed = dos_path.trim();
+            let device_path_trimmed = device_path.trim();
+            if device_path_trimmed.trim().starts_with(dos_path_trimmed) {
+                return device_path.replace(&dos_path, &format!("{}:", drive_letter));
+            }
+        }
+    }
+    device_path.to_string()
+}
+
 fn get_handle_info(handle: HANDLE) -> Option<String> {
     let mut return_length: u32 = 0;
-
-    // 初期バッファサイズを設定
     let initial_size = 1024;
     let mut buffer = valloc(initial_size);
 
@@ -71,7 +116,7 @@ fn get_handle_info(handle: HANDLE) -> Option<String> {
         };
 
         if status == STATUS_BUFFER_TOO_SMALL || status == STATUS_INFO_LENGTH_MISMATCH {
-            unsafe { VirtualFree(buffer, 0, MEM_RELEASE) };
+            vfree(buffer);
             buffer = valloc(return_length as usize);
             continue;
         }
@@ -80,14 +125,13 @@ fn get_handle_info(handle: HANDLE) -> Option<String> {
     };
 
     if !NT_SUCCESS(status) {
-        eprintln!("Failed to query system information: {}", status);
+        //eprintln!("Failed to query system information: {}", status);
         return None;
     }
 
-    // OBJECT_NAME_INFORMATION 構造体を取得
     let name_info = unsafe { &*(buffer as *const OBJECT_NAME_INFORMATION) };
-    
     if name_info.Name.Length == 0 {
+        vfree(buffer);
         return None;
     }
 
@@ -97,12 +141,14 @@ fn get_handle_info(handle: HANDLE) -> Option<String> {
             (name_info.Name.Length / 2) as usize,
         )
     };
-    
-    Some(String::from_utf16_lossy(name_slice))
+
+    let device_path = String::from_utf16_lossy(name_slice);
+    vfree(buffer);
+    Some(get_dos_device_path(&device_path))
 }
 
 fn main() {
-    let file_path = CString::new("C:\\Users\\ytani\\git\\blog\\_posts\\2025-02-14-yapps.md").unwrap();
+    let file_path = CString::new("C:\\Users\\ytani\\git\\blog\\_posts\\2025-01-13-new-site.md").unwrap();
     let file_handle: HANDLE = unsafe {
         CreateFileA(
             file_path.as_ptr(),
@@ -136,30 +182,27 @@ fn main() {
 
         println!("status: {}", status);
         if status == STATUS_BUFFER_TOO_SMALL || status == STATUS_INFO_LENGTH_MISMATCH {
-            unsafe { VirtualFree(buffer, 0, MEM_RELEASE) };
+            vfree(buffer);
             buffer = valloc(size_returned as usize);
             println!("new size: {}", size_returned);
-        }
-        else {
+        } else {
             break status;
         }
     };
     if !NT_SUCCESS(status) {
         eprintln!("Failed to query system information.");
+        vfree(buffer);
         return;
     }
 
     let handle_info = unsafe { &*(buffer as *const SYSTEM_HANDLE_INFORMATION_EX) };
     let mut target_handle: HANDLE = ptr::null_mut();
     let mut before_pid = 0;
+    println!("handle_info.NumberOfHandles = {}", handle_info.NumberOfHandles);
     for i in 0..handle_info.NumberOfHandles {
         let entry = unsafe { &*(handle_info.Handles.as_ptr().add(i as usize) as *const SYSTEM_HANDLE_TABLE_ENTRY_INFO_EX) };
 
         if entry.UniqueProcessId as u32 == std::process::id() {
-            continue;
-        }
-
-        if entry.ObjectTypeIndex != 42 {
             continue;
         }
 
@@ -168,13 +211,12 @@ fn main() {
                 unsafe { CloseHandle(target_handle) };
             }
             target_handle = unsafe {
-                OpenProcess(0x0410, 0, entry.UniqueProcessId as u32)
+                //OpenProcess(0x0410, 0, entry.UniqueProcessId as u32)
             };
         }
         before_pid = entry.UniqueProcessId;
 
         if !target_handle.is_null() {
-            println!("pid: {}", entry.UniqueProcessId);
             if let Some(handle_info) = get_handle_info(entry.HandleValue as HANDLE) {
                 println!("pid: {} filepath: {}", entry.UniqueProcessId, handle_info);
                 if handle_info == file_path.to_str().unwrap() {
@@ -185,6 +227,11 @@ fn main() {
             }
         }
     }
+    if !target_handle.is_null() {
+        unsafe { CloseHandle(target_handle) };
+    }
 
     unsafe { CloseHandle(file_handle) };
+
+    vfree(buffer);
 }
