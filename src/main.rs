@@ -14,94 +14,43 @@ const SYSTEM_HANDLE_TABLE_ENTRY_INFO_SIZE: isize = 24;
 const SYSTEM_HANDLE_TABLE_ENTRY_INFO_START_INDEX: isize = 8;
 
 // ファイルオブジェクトの ObjectTypeIndex を取得
-unsafe fn get_file_object_type_index(handle: HANDLE) -> Option<String> {
-    let mut buffer_size: u32 = 32;
+unsafe fn get_file_object_type_index(h_object: HANDLE) -> Option<String> {
+    let mut size: u32 = 32;
+    let buffer = VirtualAlloc(ptr::null_mut(), size as usize, MEM_COMMIT, PAGE_READWRITE);
+    if buffer.is_null() {
+        println!("Failed to allocate memory");
+        return None;
+    }
+    let status = NtQueryObject(h_object, ObjectTypesInformation, ptr::null_mut(), size, &mut size);
+    if status != STATUS_INFO_LENGTH_MISMATCH && status != STATUS_BUFFER_TOO_SMALL {
+        println!("NtQueryObject 1 failed with status 0x{:X}", status);
+        return None;
+    }
+    VirtualFree(buffer, 0, MEM_RELEASE);
 
-    let mut status;
-    let mut buffer;
-    loop {
-        buffer = VirtualAlloc(ptr::null_mut(), buffer_size as usize, MEM_COMMIT, PAGE_READWRITE) as *mut winapi::ctypes::c_void;
-        let before_size = buffer_size;
-        status = NtQueryObject(
-            handle,
-            ObjectTypesInformation,
-            buffer,
-            buffer_size as u32,
-            &mut buffer_size,
-        );
-        println!("size: {}, status: {}", buffer_size, status);
-
-        if NT_SUCCESS(status) {
-            break;
-        }
-
-        if status == STATUS_BUFFER_TOO_SMALL || status == STATUS_INFO_LENGTH_MISMATCH {
-            VirtualFree(buffer, before_size as usize, MEM_RELEASE);
-        } else {
-            println!("Error calling NtQueryObject, status: {}", status);
-            return None;
-        }
+    let buffer = VirtualAlloc(ptr::null_mut(), size as usize, MEM_COMMIT, PAGE_READWRITE);
+    if buffer.is_null() {
+        println!("Failed to allocate memory");
+        return None;
     }
 
-    let buffer_vec = vec![0u8; buffer_size as usize];
-    ReadProcessMemory(GetCurrentProcess(), buffer, buffer_vec.as_ptr() as *mut winapi::ctypes::c_void, buffer_size as usize, ptr::null_mut());
-    println!("buffer: {:?}", buffer_vec);
-    
-    // ループして "File" に一致するオブジェクトタイプを探す
-    for i in 0..50 {  // 最大50個のオブジェクトタイプをチェック（適宜変更）
-        let object_type_info = buffer.offset(i as isize * mem::size_of::<OBJECT_TYPE_INFORMATION>() as isize) as *const OBJECT_TYPE_INFORMATION;
-        let object_type_info = &*object_type_info;
-
-/*
-pub struct OBJECT_TYPE_INFORMATION {
-
-    pub TypeName: UNICODE_STRING,
-    pub TotalNumberOfObjects: ULONG,
-    pub TotalNumberOfHandles: ULONG,
-    pub TotalPagedPoolUsage: ULONG,
-    pub TotalNonPagedPoolUsage: ULONG,
-    pub TotalNamePoolUsage: ULONG,
-    pub TotalHandleTableUsage: ULONG,
-    pub HighWaterNumberOfObjects: ULONG,
-    pub HighWaterNumberOfHandles: ULONG,
-    pub HighWaterPagedPoolUsage: ULONG,
-    pub HighWaterNonPagedPoolUsage: ULONG,
-    pub HighWaterNamePoolUsage: ULONG,
-    pub HighWaterHandleTableUsage: ULONG,
-    pub InvalidAttributes: ULONG,
-    pub GenericMapping: GENERIC_MAPPING,
-    pub ValidAccessMask: ULONG,
-    pub SecurityRequired: BOOLEAN,
-    pub MaintainHandleCount: BOOLEAN,
-    pub TypeIndex: UCHAR,
-    pub ReservedByte: CHAR,
-    pub PoolType: ULONG,
-    pub DefaultPagedPoolCharge: ULONG,
-    pub DefaultNonPagedPoolCharge: ULONG,
-}
-     */
-
-        println!("TotalNumberOfObjects: {} TotalNumberOfHandles: {} TotalPagedPoolUsage: {} TotalNonPagedPoolUsage: {} TotalNamePoolUsage: {} TotalHandleTableUsage: {} HighWaterNumberOfObjects: {} HighWaterNumberOfHandles: {}",
-            object_type_info.TotalNumberOfObjects, object_type_info.TotalNumberOfHandles, object_type_info.TotalPagedPoolUsage, object_type_info.TotalNonPagedPoolUsage, object_type_info.TotalNamePoolUsage, object_type_info.TotalHandleTableUsage, object_type_info.HighWaterNumberOfObjects, object_type_info.HighWaterNumberOfHandles);
-
-        // オブジェクトタイプ名を取得
-        let object_type_name = object_type_info.TypeName;
-        println!("buffer: {:?} length: {} MaximumLength: {}", object_type_name.Buffer, object_type_name.Length, object_type_name.MaximumLength);
-        let str_object_type_name = String::from_utf16_lossy(std::slice::from_raw_parts(object_type_name.Buffer, object_type_name.Length as usize / 2));
-
-        // "File" に一致するオブジェクトタイプを見つけたら ObjectTypeIndex を返す
-        if str_object_type_name == "File" {
-            let object_type_index = object_type_info.TypeIndex;
-            return Some(object_type_index.to_string());
-        }
-
-        println!("Object type name: {}", str_object_type_name);
+    println!("Allocated buffer of size: {}", size);
+    let status = NtQueryObject(h_object, ObjectTypesInformation, buffer, size, &mut size);
+    if !NT_SUCCESS(status) {
+        println!("NtQueryObject 2 failed with status 0x{:X}", status);
+        VirtualFree(buffer, 0, MEM_RELEASE);
+        return None;
     }
 
-    None
+    let p_info = &*(buffer as *const OBJECT_TYPE_INFORMATION);
+    let type_name_wstr = std::slice::from_raw_parts(p_info.TypeName.Buffer, (p_info.TypeName.Length / 2) as usize);
+    let type_name = String::from_utf16_lossy(type_name_wstr);
+    println!("Object Type: {}", type_name);
+
+    VirtualFree(buffer, 0, MEM_RELEASE);
+
+    Some(type_name)
 }
-
-
 
 // NtQuerySystemInformationを呼び出してハンドル情報を取得
 unsafe fn query_system_handles() -> Vec<SYSTEM_HANDLE_TABLE_ENTRY_INFO> {
@@ -157,7 +106,7 @@ unsafe fn query_system_handles() -> Vec<SYSTEM_HANDLE_TABLE_ENTRY_INFO> {
 
 // OBJECT_BASIC_INFORMATIONを使ってオブジェクトがファイルかどうかを確認
 fn is_file_object(handle_info: &SYSTEM_HANDLE_TABLE_ENTRY_INFO) -> bool {
-    let file_type_index = unsafe { get_file_object_type_index(handle_info.Object) };
+    let file_type_index = unsafe { get_file_object_type_index(handle_info.HandleValue as HANDLE) };
     if file_type_index.is_none() {
         return false;
     }
