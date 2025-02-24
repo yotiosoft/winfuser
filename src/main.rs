@@ -3,16 +3,11 @@ extern crate ntapi;
 
 use std::ffi::OsStr;
 use std::os::windows::ffi::OsStrExt;
-use std::ffi::CString;
-use api::duplicate_handle;
 use ntapi::ntobapi::{ObjectTypeInformation, OBJECT_TYPE_INFORMATION, ObjectNameInformation, OBJECT_NAME_INFORMATION};
 use ntapi::ntexapi::SystemExtendedHandleInformation;
 use ntapi::ntexapi::{SYSTEM_HANDLE_INFORMATION_EX, SYSTEM_HANDLE_TABLE_ENTRY_INFO_EX};
 use winapi::um::winnt::PROCESS_DUP_HANDLE;
-use tokio;
-use tokio::time::timeout;
-use tokio::sync::oneshot;
-use std::time::Duration;
+use winapi::um::winbase::FILE_TYPE_DISK;
 
 mod api;
 
@@ -54,7 +49,6 @@ fn get_dos_device_path(device_path: &str) -> String {
 
 fn get_handle_type(handle: &api::Handle) -> Result<Option<String>, api::Status> {
     let buffer = api::nt_query_object(handle, ObjectTypeInformation)?;
-    let return_length: u32 = buffer.size as u32;
     let buffer = buffer.buffer;
 
     let type_info = unsafe { &*(buffer as *const OBJECT_TYPE_INFORMATION) };
@@ -71,7 +65,6 @@ fn get_handle_type(handle: &api::Handle) -> Result<Option<String>, api::Status> 
 
 fn get_handle_info(handle: &api::Handle) -> Result<Option<String>, api::Status> {
     let buffer = api::nt_query_object(handle, ObjectNameInformation)?;
-    let return_length = buffer.size;
     let buffer = buffer.buffer;
 
     let name_info = unsafe { &*(buffer as *const OBJECT_NAME_INFORMATION) };
@@ -111,22 +104,27 @@ fn handle_check(pid: u32, handle_value: api::NotOpenedHandle, file_path: String)
     match handle_type {
         Ok(Some(handle_type)) => {
             if !handle_type.starts_with("File") {
-                println!("not file");
                 return Ok(());
             }
         },
         Ok(None) => {
-            println!("none");
             return Ok(());
         },
         Err(e) => {
-            println!("gethandle error: {:?}", e);
             return Err(e);
         }
     }
 
+    // get file type
+    let file_type = api::get_file_type(&duplicated_handle);
+    if file_type != FILE_TYPE_DISK {
+        return Ok(());
+    }
+
     if let Ok(Some(handle_info)) = get_handle_info(&duplicated_handle) {
-        println!("pid: {} filepath: {}", pid, handle_info);
+        if handle_info.contains("git") {
+            //println!("pid: {} filepath: {}", pid, handle_info);
+        }
         if handle_info == file_path {
             if let Some(process_name) = get_process_name(pid) {
                 println!("Process ID: {} is holding the file. Process Name: {}", pid, process_name);
@@ -137,14 +135,12 @@ fn handle_check(pid: u32, handle_value: api::NotOpenedHandle, file_path: String)
     Ok(())
 }
 
-#[tokio::main]
-async fn main() {
+fn main() {
     // target filepath
-    let file_path = "C:\\Users\\ytani\\git\\winfuser";
+    let file_path = "C:\\Users\\ytani\\git\\blog\\_posts";
     println!("Target file path: {}", file_path);
 
     let buffer = api::query_system_information(SystemExtendedHandleInformation).map_err(|e| eprintln!("Failed to query system information: {}", e)).unwrap();
-    let size_returned = buffer.size;
     let buffer = buffer.buffer;
 
     let handle_info = unsafe { &*(buffer as *const SYSTEM_HANDLE_INFORMATION_EX) };
@@ -152,28 +148,11 @@ async fn main() {
         let entry = unsafe { &*(handle_info.Handles.as_ptr().add(i as usize) as *const SYSTEM_HANDLE_TABLE_ENTRY_INFO_EX) };
 
         if entry.UniqueProcessId as u32 == std::process::id() {
-            println!("skip");
             continue;
         }
 
-        let (tx, rx) = oneshot::channel();
-
         let pid = entry.UniqueProcessId as u32;
-        let handle_value = entry.HandleValue as u64;
-
-        //println!("Checking pid: {} handle: {}", pid, handle);
-        tokio::spawn(async move {
-            let result = handle_check(pid, handle_value, file_path.to_string());
-            tx.send(result).unwrap();
-        });
-        //timeout(Duration::from_secs(1), rx).await.map_err(|e| eprintln!("Timeout: {:?}", e)).map_err(|e| eprintln!("Timeout: {:?}", e)).unwrap_or(Ok(())).unwrap();
-        let wait_process = timeout(Duration::from_millis(500), rx).await;
-        match wait_process {
-            Ok(Ok(Ok(()))) => {},
-            Ok(Ok(Err(e))) => eprintln!("Error: {:?}", e),
-            Ok(Err(e)) => eprintln!("Timeout: {:?}", e),
-            Err(e) => eprintln!("Timeout: {:?}", e),
-        }
-        //println!("after Checking pid: {} handle: {}", pid, handle);
+        let handle_value = entry.HandleValue as api::NotOpenedHandle;
+        handle_check(pid, handle_value, file_path.to_string()).map_err(|e| eprintln!("Error: {:?}", e)).unwrap();
     }
 }

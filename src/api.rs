@@ -8,7 +8,7 @@ use winapi::um::winnt::{ MEM_COMMIT, MEM_RELEASE, PAGE_READWRITE, DUPLICATE_SAME
 use winapi::shared::ntdef::{ NT_SUCCESS, HANDLE };
 use winapi::shared::ntstatus::{ STATUS_BUFFER_TOO_SMALL, STATUS_INFO_LENGTH_MISMATCH };
 use winapi::um::memoryapi::{ VirtualAlloc, VirtualFree };
-use winapi::um::fileapi::QueryDosDeviceW;
+use winapi::um::fileapi::{ QueryDosDeviceW, GetFileType };
 use winapi::um::processthreadsapi::OpenProcess;
 use winapi::um::psapi::GetModuleBaseNameA;
 use winapi::shared::minwindef::{MAX_PATH, FALSE};
@@ -186,15 +186,19 @@ pub fn open_process(process_id: u32, access: u32) -> Handle {
     Handle::new(raw_handle)
 }
 
-pub fn close_handle(handle: Handle) {
+pub fn get_file_type(handle: &Handle) -> u32 {
+    unsafe { GetFileType(handle.handle) }
+}
+
+fn close_handle(handle: Handle) {
     let raw_handle = handle.handle;
     unsafe { CloseHandle(raw_handle); }
 }
 
-pub fn valloc(size: usize) -> *mut winapi::ctypes::c_void {
+fn valloc(size: usize) -> *mut winapi::ctypes::c_void {
     unsafe { VirtualAlloc(ptr::null_mut(), size, MEM_COMMIT, PAGE_READWRITE) }
 }
 
-pub fn vfree(buffer: *mut winapi::ctypes::c_void, size: usize) {
+fn vfree(buffer: *mut winapi::ctypes::c_void, size: usize) {
     unsafe { VirtualFree(buffer, size, MEM_RELEASE); }
 }
