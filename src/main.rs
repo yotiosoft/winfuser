@@ -13,10 +13,8 @@ mod api;
 
 const NETWORK_DEVICE_PREFIX: &str = "\\Device\\Mup";
 
-struct FileProfile {
-    file_path: String,
-}
-type ProcOpenedFiles = HashMap<u32, Vec<FileProfile>>;
+type Pid = u32;
+type ProcOpenedFiles = HashMap<String, Vec<Pid>>;
 
 fn get_process_name(process_id: u32) -> Option<String> {
     let handle = api::open_process(process_id, 0x0410);
@@ -140,7 +138,6 @@ fn main() {
     let handle_info = api::buffer_to_system_handle_information_ex(buffer);
 
     let mut proc_opened_files: ProcOpenedFiles = HashMap::new();
-
     for entry in handle_info.handles.iter() {
         if entry.UniqueProcessId as u32 == std::process::id() {
             continue;
@@ -154,16 +151,20 @@ fn main() {
         }
         let duplicated_handle = duplicated_handle.unwrap();
 
-        if let Ok(Some(handle_info)) = get_handle_filepath(&duplicated_handle) {
-            proc_opened_files.entry(pid).or_insert(Vec::new()).push(FileProfile { file_path: handle_info.clone() });
+        if let Ok(Some(filepath)) = get_handle_filepath(&duplicated_handle) {
+            proc_opened_files.entry(filepath).or_insert(Vec::new()).push(pid);
         }
     }
 
     // ファイルを開いているプロセスを表示
-    for (pid, files) in proc_opened_files.iter() {
-        if files.iter().map(|file_profile| &file_profile.file_path).any(|profile_file_path| profile_file_path == file_path) {
-            if let Some(process_name) = get_process_name(*pid) {
-                println!("Process ID: {} is holding the file. Process Name: {}", pid, process_name);
+    for (elem_filepath, elem_pids) in proc_opened_files.iter() {
+        //if files.iter().map(|file_profile| &file_profile.file_path).any(|profile_file_path| profile_file_path == file_path) {
+        if elem_filepath == file_path {
+            println!("File path: {}", elem_filepath);
+            for pid in elem_pids.iter() {
+                if let Some(process_name) = get_process_name(*pid) {
+                    println!("Process ID: {} is holding the file. Process Name: {}", pid, process_name);
+                }
             }
         }
     }
