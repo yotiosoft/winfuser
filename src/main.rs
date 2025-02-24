@@ -5,7 +5,6 @@ use std::ffi::OsStr;
 use std::os::windows::ffi::OsStrExt;
 use ntapi::ntobapi::{ObjectTypeInformation, OBJECT_TYPE_INFORMATION, ObjectNameInformation, OBJECT_NAME_INFORMATION};
 use ntapi::ntexapi::SystemExtendedHandleInformation;
-use ntapi::ntexapi::{SYSTEM_HANDLE_INFORMATION_EX, SYSTEM_HANDLE_TABLE_ENTRY_INFO_EX};
 use winapi::um::winnt::PROCESS_DUP_HANDLE;
 use winapi::um::winbase::FILE_TYPE_DISK;
 
@@ -141,12 +140,9 @@ fn main() {
     println!("Target file path: {}", file_path);
 
     let buffer = api::query_system_information(SystemExtendedHandleInformation).map_err(|e| eprintln!("Failed to query system information: {}", e)).unwrap();
-    let buffer = buffer.buffer;
+    let handle_info = api::buffer_to_system_handle_information_ex(buffer);
 
-    let handle_info = unsafe { &*(buffer as *const SYSTEM_HANDLE_INFORMATION_EX) };
-    for i in 0..handle_info.NumberOfHandles {
-        let entry = unsafe { &*(handle_info.Handles.as_ptr().add(i as usize) as *const SYSTEM_HANDLE_TABLE_ENTRY_INFO_EX) };
-
+    for entry in handle_info.handles.iter() {
         if entry.UniqueProcessId as u32 == std::process::id() {
             continue;
         }

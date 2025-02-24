@@ -1,5 +1,5 @@
 use winapi::um::handleapi::{ CloseHandle, DuplicateHandle };
-use ntapi::ntexapi::NtQuerySystemInformation;
+use ntapi::ntexapi::{ NtQuerySystemInformation, SYSTEM_HANDLE_INFORMATION_EX, SYSTEM_HANDLE_TABLE_ENTRY_INFO_EX };
 use std::ptr;
 use ntapi::ntobapi::NtQueryObject;
 use winapi::um::memoryapi::*;
@@ -38,10 +38,13 @@ impl Handle {
     pub fn new(handle: HANDLE) -> Handle {
         Handle { handle: handle}
     }
+}
 
-    pub fn from_u64(handle: u64) -> Handle {
-        Handle { handle: handle as HANDLE }
-    }
+// SYSTEM_HANDLE_INFORMATION_EX
+pub struct WfSystemHandleInformationEx {
+    pub number_of_handles: usize,
+    pub reserved: usize,
+    pub handles: Vec<SYSTEM_HANDLE_TABLE_ENTRY_INFO_EX>,
 }
 
 pub fn query_system_information(system_information_class: u32) -> Result<Buffer, Status> {
@@ -74,6 +77,25 @@ pub fn query_system_information(system_information_class: u32) -> Result<Buffer,
     }
 
     Ok(Buffer { buffer, size: size_returned as usize })
+}
+
+pub fn buffer_to_system_handle_information_ex(buffer: Buffer) -> WfSystemHandleInformationEx {
+    let system_handle_information_ex = unsafe { &*(buffer.buffer as *const SYSTEM_HANDLE_INFORMATION_EX) };
+    let number_of_handles = system_handle_information_ex.NumberOfHandles as usize;
+    let reserved = system_handle_information_ex.Reserved as usize;
+    let handles = unsafe {
+        std::slice::from_raw_parts(
+            system_handle_information_ex.Handles.as_ptr(),
+            number_of_handles,
+        )
+    }
+    .to_vec();
+
+    WfSystemHandleInformationEx {
+        number_of_handles,
+        reserved,
+        handles,
+    }
 }
 
 pub fn query_dos_device(device_name_u16: *const u16) -> Option<String> {
@@ -188,11 +210,6 @@ pub fn open_process(process_id: u32, access: u32) -> Handle {
 
 pub fn get_file_type(handle: &Handle) -> u32 {
     unsafe { GetFileType(handle.handle) }
-}
-
-fn close_handle(handle: Handle) {
-    let raw_handle = handle.handle;
-    unsafe { CloseHandle(raw_handle); }
 }
 
 fn valloc(size: usize) -> *mut winapi::ctypes::c_void {
