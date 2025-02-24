@@ -3,12 +3,14 @@ extern crate ntapi;
 
 use std::ffi::OsStr;
 use std::os::windows::ffi::OsStrExt;
-use ntapi::ntobapi::{ObjectTypeInformation, OBJECT_TYPE_INFORMATION, ObjectNameInformation, OBJECT_NAME_INFORMATION};
+use ntapi::ntobapi::{ ObjectTypeInformation, ObjectNameInformation };
 use ntapi::ntexapi::SystemExtendedHandleInformation;
 use winapi::um::winnt::PROCESS_DUP_HANDLE;
-use winapi::um::winbase::FILE_TYPE_DISK;
+use winapi::um::winbase::{ /*FILE_TYPE_DISK, */FILE_TYPE_CHAR, FILE_TYPE_PIPE };
 
 mod api;
+
+const NETWORK_DEVICE_PREFIX: &str = "\\Device\\Mup";
 
 fn get_process_name(process_id: u32) -> Option<String> {
     let handle = api::open_process(process_id, 0x0410);
@@ -33,24 +35,22 @@ fn query_dos_device_path(drive_letter: char) -> Option<String> {
     Some(path)
 }
 
-fn get_dos_device_path(device_path: &str) -> String {
+fn get_dos_device_path(device_path: &str) -> (String, bool) {
     for drive_letter in 'A'..='Z' {
         if let Some(dos_path) = query_dos_device_path(drive_letter) {
             let dos_path_trimmed = dos_path.trim();
             let device_path_trimmed = device_path.trim();
             if device_path_trimmed.trim().starts_with(dos_path_trimmed) {
-                return device_path.replace(&dos_path, &format!("{}:", drive_letter));
+                return (device_path.replace(&dos_path, &format!("{}:", drive_letter)), true);
             }
         }
     }
-    device_path.to_string()
+    (device_path.to_string(), false)
 }
 
 fn get_handle_type(handle: &api::Handle) -> Result<Option<String>, api::Status> {
     let buffer = api::nt_query_object(handle, ObjectTypeInformation)?;
-    let buffer = buffer.buffer;
-
-    let type_info = unsafe { &*(buffer as *const OBJECT_TYPE_INFORMATION) };
+    let type_info = api::buffer_to_object_type_information(buffer);
     if type_info.TypeName.Length == 0 {
         return Ok(None);
     }
@@ -62,25 +62,27 @@ fn get_handle_type(handle: &api::Handle) -> Result<Option<String>, api::Status> 
     Ok(Some(type_name))
 }
 
-fn get_handle_info(handle: &api::Handle) -> Result<Option<String>, api::Status> {
+fn get_handle_filepath(handle: &api::Handle) -> Result<Option<String>, api::Status> {
     let buffer = api::nt_query_object(handle, ObjectNameInformation)?;
-    let buffer = buffer.buffer;
-
-    let name_info = unsafe { &*(buffer as *const OBJECT_NAME_INFORMATION) };
-    if name_info.Name.Length == 0 {
+    let device_path = api::buffer_to_name_string(buffer);
+    if device_path.len() == 0 {
         return Ok(None);
     }
-
-    let name_slice = unsafe {
-        std::slice::from_raw_parts(
-            name_info.Name.Buffer,
-            (name_info.Name.Length / 2) as usize,
-        )
+    let filepath = {
+        let (filepath, on_disk) = get_dos_device_path(&device_path);
+        if on_disk {
+            filepath
+        }
+        else {
+            if filepath.starts_with(NETWORK_DEVICE_PREFIX) {
+                filepath[NETWORK_DEVICE_PREFIX.len()..].to_string()
+            }
+            else {
+                filepath
+            }
+        }
     };
-
-    let device_path = String::from_utf16_lossy(name_slice);
-
-    Ok(Some(get_dos_device_path(&device_path)))
+    Ok(Some(filepath))
 }
 
 fn handle_check(pid: u32, handle_value: api::NotOpenedHandle, file_path: String) -> Result<(), api::Status> {
@@ -116,14 +118,14 @@ fn handle_check(pid: u32, handle_value: api::NotOpenedHandle, file_path: String)
 
     // get file type
     let file_type = api::get_file_type(&duplicated_handle);
-    if file_type != FILE_TYPE_DISK {
+    if file_type == FILE_TYPE_CHAR || file_type == FILE_TYPE_PIPE {
         return Ok(());
     }
 
-    if let Ok(Some(handle_info)) = get_handle_info(&duplicated_handle) {
-        if handle_info.contains("git") {
-            //println!("pid: {} filepath: {}", pid, handle_info);
-        }
+    if let Ok(Some(handle_info)) = get_handle_filepath(&duplicated_handle) {
+        //if handle_info.contains("raspberry-pi-5") {
+        //    println!("pid: {} filepath: {}", pid, handle_info);
+        //}
         if handle_info == file_path {
             if let Some(process_name) = get_process_name(pid) {
                 println!("Process ID: {} is holding the file. Process Name: {}", pid, process_name);
@@ -136,7 +138,7 @@ fn handle_check(pid: u32, handle_value: api::NotOpenedHandle, file_path: String)
 
 fn main() {
     // target filepath
-    let file_path = "C:\\Users\\ytani\\git\\blog\\_posts";
+    let file_path = "\\raspberry-pi-5\\usbhdd1\\rtl_sdr_rec\\windows\\_蓮見翔_園田サンタ_1_SDRSharp_20241218_165950Z_80000000Hz_AF.wav";
     println!("Target file path: {}", file_path);
 
     let buffer = api::query_system_information(SystemExtendedHandleInformation).map_err(|e| eprintln!("Failed to query system information: {}", e)).unwrap();

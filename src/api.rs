@@ -1,3 +1,4 @@
+use ntapi::ntobapi::{ OBJECT_TYPE_INFORMATION, OBJECT_NAME_INFORMATION };
 use winapi::um::handleapi::{ CloseHandle, DuplicateHandle };
 use ntapi::ntexapi::{ NtQuerySystemInformation, SYSTEM_HANDLE_INFORMATION_EX, SYSTEM_HANDLE_TABLE_ENTRY_INFO_EX };
 use std::ptr;
@@ -96,6 +97,21 @@ pub fn buffer_to_system_handle_information_ex(buffer: Buffer) -> WfSystemHandleI
         reserved,
         handles,
     }
+}
+
+pub fn buffer_to_object_type_information(buffer: Buffer) -> OBJECT_TYPE_INFORMATION {
+    unsafe { *(buffer.buffer as *const OBJECT_TYPE_INFORMATION) }
+}
+
+pub fn buffer_to_name_string(buffer: Buffer) -> String {
+    let name_info = unsafe { &*(buffer.buffer as *const OBJECT_NAME_INFORMATION) };
+    let name_slice = unsafe {
+        std::slice::from_raw_parts(
+            name_info.Name.Buffer,
+            (name_info.Name.Length / 2) as usize,
+        )
+    };
+    String::from_utf16_lossy(name_slice)
 }
 
 pub fn query_dos_device(device_name_u16: *const u16) -> Option<String> {
