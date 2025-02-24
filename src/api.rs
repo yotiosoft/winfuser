@@ -18,6 +18,11 @@ pub struct Buffer {
     pub buffer: *mut winapi::ctypes::c_void,
     pub size: usize,
 }
+impl Drop for Buffer {
+    fn drop(&mut self) {
+        unsafe { vfree(self.buffer, self.size); }
+    }
+}
 
 pub fn query_system_information(system_information_class: u32) -> Result<Buffer, STATUS> {
     let mut buffer = valloc(32);

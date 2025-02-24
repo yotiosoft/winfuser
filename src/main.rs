@@ -60,14 +60,12 @@ fn get_handle_type(handle: HANDLE) -> Result<Option<String>, api::STATUS> {
 
     let type_info = unsafe { &*(buffer as *const OBJECT_TYPE_INFORMATION) };
     if type_info.TypeName.Length == 0 {
-        api::vfree(buffer, return_length as usize);
         return Ok(None);
     }
 
     let name_buf = api::read_process_memory_u16(type_info.TypeName.Buffer as *const winapi::ctypes::c_void, type_info.TypeName.Length as usize);
 
     let type_name = String::from_utf16_lossy(&name_buf);
-    api::vfree(buffer, return_length as usize);
 
     Ok(Some(type_name))
 }
@@ -79,7 +77,6 @@ fn get_handle_info(handle: HANDLE) -> Result<Option<String>, api::STATUS> {
 
     let name_info = unsafe { &*(buffer as *const OBJECT_NAME_INFORMATION) };
     if name_info.Name.Length == 0 {
-        api::vfree(buffer, return_length as usize);
         return Ok(None);
     }
 
@@ -92,28 +89,16 @@ fn get_handle_info(handle: HANDLE) -> Result<Option<String>, api::STATUS> {
 
     let device_path = String::from_utf16_lossy(name_slice);
 
-    api::vfree(buffer, return_length as usize);
     Ok(Some(get_dos_device_path(&device_path)))
 }
 
-fn is_filepath_same(handle: HANDLE, file_path: &String) -> bool {
-    let handle_info = get_handle_info(handle);
-    if let Ok(Some(handle_info)) = handle_info {
-        if handle_info == *file_path {
-            return true;
-        }
-    }
-    false
-}
-
-fn handle_check(pid: u32, handle_value: u32, file_path: String) -> Result<(), api::STATUS> {
+fn handle_check(pid: u32, handle_value: u64, file_path: String) -> Result<(), api::STATUS> {
     let duplicated_handle = {
-        let target_process_handle = api::open_process(pid as u32, PROCESS_DUP_HANDLE);
+        let target_process_handle = api::open_process(pid, PROCESS_DUP_HANDLE);
         let duplicated_handle = api::duplicate_handle(handle_value as HANDLE, target_process_handle);
         api::close_handle(target_process_handle);
         duplicated_handle
     };
-
     if duplicated_handle.is_none() {
         return Ok(());
     }
@@ -124,21 +109,29 @@ fn handle_check(pid: u32, handle_value: u32, file_path: String) -> Result<(), ap
     match handle_type {
         Ok(Some(handle_type)) => {
             if !handle_type.starts_with("File") {
+                println!("not file");
+                api::close_handle(duplicated_handle);
                 return Ok(());
             }
         },
         Ok(None) => {
+            println!("none");
+            api::close_handle(duplicated_handle);
             return Ok(());
         },
         Err(e) => {
+            println!("gethandle error: {:?}", e);
+            api::close_handle(duplicated_handle);
             return Err(e);
         }
     }
 
-    if is_filepath_same(duplicated_handle, &file_path) {
-        println!("pid: {} filepath: {}", pid, file_path);
-        if let Some(process_name) = get_process_name(pid) {
-            println!("Process ID: {} is holding the file. Process Name: {}", pid, process_name);
+    if let Ok(Some(handle_info)) = get_handle_info(duplicated_handle) {
+        println!("pid: {} filepath: {}", pid, handle_info);
+        if handle_info == file_path {
+            if let Some(process_name) = get_process_name(pid) {
+                println!("Process ID: {} is holding the file. Process Name: {}", pid, process_name);
+            }
         }
     }
 
@@ -168,21 +161,21 @@ async fn main() {
         let (tx, rx) = oneshot::channel();
 
         let pid = entry.UniqueProcessId as u32;
-        let handle = entry.HandleValue as u32;
+        let handle = entry.HandleValue as u64;
 
+        //println!("Checking pid: {} handle: {}", pid, handle);
         tokio::spawn(async move {
             let result = handle_check(pid, handle, file_path.to_string());
             tx.send(result).unwrap();
         });
         //timeout(Duration::from_secs(1), rx).await.map_err(|e| eprintln!("Timeout: {:?}", e)).map_err(|e| eprintln!("Timeout: {:?}", e)).unwrap_or(Ok(())).unwrap();
-        let wait_process = timeout(Duration::from_secs(1), rx).await;
+        let wait_process = timeout(Duration::from_millis(500), rx).await;
         match wait_process {
             Ok(Ok(Ok(()))) => {},
             Ok(Ok(Err(e))) => eprintln!("Error: {:?}", e),
             Ok(Err(e)) => eprintln!("Timeout: {:?}", e),
             Err(e) => eprintln!("Timeout: {:?}", e),
         }
+        //println!("after Checking pid: {} handle: {}", pid, handle);
     }
-
-    api::vfree(buffer, size_returned as usize);
 }
