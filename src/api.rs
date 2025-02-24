@@ -12,7 +12,9 @@ use winapi::um::fileapi::QueryDosDeviceW;
 use winapi::um::processthreadsapi::OpenProcess;
 use winapi::um::psapi::GetModuleBaseNameA;
 use winapi::shared::minwindef::{MAX_PATH, FALSE};
-pub type STATUS = i32;
+
+pub type Status = i32;
+pub type NotOpenedHandle = u64;
 
 pub struct Buffer {
     pub buffer: *mut winapi::ctypes::c_void,
@@ -20,11 +22,29 @@ pub struct Buffer {
 }
 impl Drop for Buffer {
     fn drop(&mut self) {
-        unsafe { vfree(self.buffer, self.size); }
+        vfree(self.buffer, self.size);
     }
 }
 
-pub fn query_system_information(system_information_class: u32) -> Result<Buffer, STATUS> {
+pub struct Handle {
+    pub handle: HANDLE,
+}
+impl Drop for Handle {
+    fn drop(&mut self) {
+        unsafe { CloseHandle(self.handle); }
+    }
+}
+impl Handle {
+    pub fn new(handle: HANDLE) -> Handle {
+        Handle { handle: handle}
+    }
+
+    pub fn from_u64(handle: u64) -> Handle {
+        Handle { handle: handle as HANDLE }
+    }
+}
+
+pub fn query_system_information(system_information_class: u32) -> Result<Buffer, Status> {
     let mut buffer = valloc(32);
     let mut size_returned = 32;
 
@@ -75,7 +95,7 @@ pub fn query_dos_device(device_name_u16: *const u16) -> Option<String> {
     Some(path)
 }
 
-pub fn nt_query_object(handle: HANDLE, object_information_class: u32) -> Result<Buffer, STATUS> {
+pub fn nt_query_object(handle: &Handle, object_information_class: u32) -> Result<Buffer, Status> {
     let mut size_returned = 1024;
     let mut buffer = valloc(size_returned as usize);
 
@@ -83,7 +103,7 @@ pub fn nt_query_object(handle: HANDLE, object_information_class: u32) -> Result<
         let before_length = size_returned;
         let status = unsafe {
             NtQueryObject(
-                handle,
+                handle.handle,
                 object_information_class,
                 buffer,
                 size_returned,
@@ -107,11 +127,11 @@ pub fn nt_query_object(handle: HANDLE, object_information_class: u32) -> Result<
     Ok(Buffer { buffer, size: size_returned as usize })
 }
 
-pub fn get_module_base_name(handle: HANDLE) -> Option<String> {
+pub fn get_module_base_name(handle: Handle) -> Option<String> {
     let mut buffer = vec![0u8; 1024];
     let ret = unsafe {
         GetModuleBaseNameA(
-            handle,
+            handle.handle,
             ptr::null_mut(),
             buffer.as_mut_ptr() as *mut i8,
             buffer.len() as u32,
@@ -140,12 +160,14 @@ pub fn read_process_memory_u16(address: *const winapi::ctypes::c_void, size: usi
     buffer
 }
 
-pub fn duplicate_handle(handle: HANDLE, target_process_handle: HANDLE) -> Option<HANDLE> {
+pub fn duplicate_handle(object_handle: NotOpenedHandle, target_process_handle: Handle) -> Option<Handle> {
     let mut duplicated_handle: HANDLE = ptr::null_mut();
+    let object_handle = object_handle as HANDLE;
+    let target_process_handle = target_process_handle.handle;
     let duplicate_status = unsafe {
         DuplicateHandle(
             target_process_handle,
-            handle,
+            object_handle,
             GetCurrentProcess(),
             &mut duplicated_handle,
             0,
@@ -153,20 +175,20 @@ pub fn duplicate_handle(handle: HANDLE, target_process_handle: HANDLE) -> Option
             DUPLICATE_SAME_ACCESS,
         )
     };
-
     if duplicate_status == FALSE {
         return None;
     }
-
-    Some(duplicated_handle)
+    Some(Handle::new(duplicated_handle))
 }
 
-pub fn open_process(process_id: u32, access: u32) -> HANDLE {
-    unsafe { OpenProcess(access, 0, process_id) }
+pub fn open_process(process_id: u32, access: u32) -> Handle {
+    let raw_handle  = unsafe { OpenProcess(access, 0, process_id) };
+    Handle::new(raw_handle)
 }
 
-pub fn close_handle(handle: HANDLE) {
-    unsafe { CloseHandle(handle) };
+pub fn close_handle(handle: Handle) {
+    let raw_handle = handle.handle;
+    unsafe { CloseHandle(raw_handle); }
 }
 
 pub fn valloc(size: usize) -> *mut winapi::ctypes::c_void {
