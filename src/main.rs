@@ -6,7 +6,7 @@ use std::os::windows::ffi::OsStrExt;
 use ntapi::ntobapi::{ ObjectTypeInformation, ObjectNameInformation };
 use ntapi::ntexapi::SystemExtendedHandleInformation;
 use winapi::um::winnt::PROCESS_DUP_HANDLE;
-use winapi::um::winbase::{ /*FILE_TYPE_DISK, */FILE_TYPE_CHAR, FILE_TYPE_PIPE };
+use winapi::um::winbase::FILE_TYPE_DISK;
 
 mod api;
 
@@ -118,7 +118,7 @@ fn handle_check(pid: u32, handle_value: api::NotOpenedHandle, file_path: String)
 
     // get file type
     let file_type = api::get_file_type(&duplicated_handle);
-    if file_type == FILE_TYPE_CHAR || file_type == FILE_TYPE_PIPE {
+    if file_type != FILE_TYPE_DISK {
         return Ok(());
     }
 
