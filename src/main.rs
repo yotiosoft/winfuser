@@ -7,10 +7,16 @@ use ntapi::ntobapi::{ ObjectTypeInformation, ObjectNameInformation };
 use ntapi::ntexapi::SystemExtendedHandleInformation;
 use winapi::um::winnt::PROCESS_DUP_HANDLE;
 use winapi::um::winbase::FILE_TYPE_DISK;
+use std::collections::HashMap;
 
 mod api;
 
 const NETWORK_DEVICE_PREFIX: &str = "\\Device\\Mup";
+
+struct FileProfile {
+    file_path: String,
+}
+type ProcOpenedFiles = HashMap<u32, Vec<FileProfile>>;
 
 fn get_process_name(process_id: u32) -> Option<String> {
     let handle = api::open_process(process_id, 0x0410);
@@ -85,7 +91,7 @@ fn get_handle_filepath(handle: &api::Handle) -> Result<Option<String>, api::Stat
     Ok(Some(filepath))
 }
 
-fn handle_check(pid: u32, handle_value: api::NotOpenedHandle, file_path: String) -> Result<(), api::Status> {
+fn entry_to_filepath(pid: u32, handle_value: api::NotOpenedHandle, file_path: String) -> Result<Option<api::Handle>, api::Status> {
     let duplicated_handle = {
         let target_process_handle = api::open_process(pid, PROCESS_DUP_HANDLE);
         if target_process_handle.handle.is_null() {
@@ -96,7 +102,7 @@ fn handle_check(pid: u32, handle_value: api::NotOpenedHandle, file_path: String)
         }
     };
     if duplicated_handle.is_none() {
-        return Ok(());
+        return Ok(None);
     }
     let duplicated_handle = duplicated_handle.unwrap();
 
@@ -105,11 +111,11 @@ fn handle_check(pid: u32, handle_value: api::NotOpenedHandle, file_path: String)
     match handle_type {
         Ok(Some(handle_type)) => {
             if !handle_type.starts_with("File") {
-                return Ok(());
+                return Ok(None);
             }
         },
         Ok(None) => {
-            return Ok(());
+            return Ok(None);
         },
         Err(e) => {
             return Err(e);
@@ -119,30 +125,21 @@ fn handle_check(pid: u32, handle_value: api::NotOpenedHandle, file_path: String)
     // get file type
     let file_type = api::get_file_type(&duplicated_handle);
     if file_type != FILE_TYPE_DISK {
-        return Ok(());
+        return Ok(None);
     }
 
-    if let Ok(Some(handle_info)) = get_handle_filepath(&duplicated_handle) {
-        //if handle_info.contains("raspberry-pi-5") {
-        //    println!("pid: {} filepath: {}", pid, handle_info);
-        //}
-        if handle_info == file_path {
-            if let Some(process_name) = get_process_name(pid) {
-                println!("Process ID: {} is holding the file. Process Name: {}", pid, process_name);
-            }
-        }
-    }
-
-    Ok(())
+    Ok(Some(duplicated_handle))
 }
 
 fn main() {
     // target filepath
-    let file_path = "\\raspberry-pi-5\\usbhdd1\\rtl_sdr_rec\\windows\\_蓮見翔_園田サンタ_1_SDRSharp_20241218_165950Z_80000000Hz_AF.wav";
+    let file_path = "C:\\Users\\ytani\\git\\blog\\_posts";
     println!("Target file path: {}", file_path);
 
     let buffer = api::query_system_information(SystemExtendedHandleInformation).map_err(|e| eprintln!("Failed to query system information: {}", e)).unwrap();
     let handle_info = api::buffer_to_system_handle_information_ex(buffer);
+
+    let mut proc_opened_files: ProcOpenedFiles = HashMap::new();
 
     for entry in handle_info.handles.iter() {
         if entry.UniqueProcessId as u32 == std::process::id() {
@@ -151,6 +148,23 @@ fn main() {
 
         let pid = entry.UniqueProcessId as u32;
         let handle_value = entry.HandleValue as api::NotOpenedHandle;
-        handle_check(pid, handle_value, file_path.to_string()).map_err(|e| eprintln!("Error: {:?}", e)).unwrap();
+        let duplicated_handle = entry_to_filepath(pid, handle_value, file_path.to_string()).map_err(|e| eprintln!("Error: {:?}", e)).unwrap();
+        if duplicated_handle.is_none() {
+            continue;
+        }
+        let duplicated_handle = duplicated_handle.unwrap();
+
+        if let Ok(Some(handle_info)) = get_handle_filepath(&duplicated_handle) {
+            proc_opened_files.entry(pid).or_insert(Vec::new()).push(FileProfile { file_path: handle_info.clone() });
+        }
+    }
+
+    // ファイルを開いているプロセスを表示
+    for (pid, files) in proc_opened_files.iter() {
+        if files.iter().map(|file_profile| &file_profile.file_path).any(|profile_file_path| profile_file_path == file_path) {
+            if let Some(process_name) = get_process_name(*pid) {
+                println!("Process ID: {} is holding the file. Process Name: {}", pid, process_name);
+            }
+        }
     }
 }
