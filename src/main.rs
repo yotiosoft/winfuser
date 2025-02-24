@@ -4,11 +4,16 @@ extern crate ntapi;
 use std::ffi::OsStr;
 use std::os::windows::ffi::OsStrExt;
 use std::ffi::CString;
+use api::duplicate_handle;
 use winapi::shared::ntdef::HANDLE;
 use ntapi::ntobapi::{ObjectTypeInformation, OBJECT_TYPE_INFORMATION, ObjectNameInformation, OBJECT_NAME_INFORMATION};
 use ntapi::ntexapi::SystemExtendedHandleInformation;
 use ntapi::ntexapi::{SYSTEM_HANDLE_INFORMATION_EX, SYSTEM_HANDLE_TABLE_ENTRY_INFO_EX};
 use winapi::um::winnt::PROCESS_DUP_HANDLE;
+use tokio;
+use tokio::time::timeout;
+use tokio::sync::oneshot;
+use std::time::Duration;
 
 mod api;
 
@@ -74,7 +79,6 @@ fn get_handle_info(handle: HANDLE) -> Result<Option<String>, api::STATUS> {
 
     let name_info = unsafe { &*(buffer as *const OBJECT_NAME_INFORMATION) };
     if name_info.Name.Length == 0 {
-        eprintln!("name length is 0");
         api::vfree(buffer, return_length as usize);
         return Ok(None);
     }
@@ -92,11 +96,62 @@ fn get_handle_info(handle: HANDLE) -> Result<Option<String>, api::STATUS> {
     Ok(Some(get_dos_device_path(&device_path)))
 }
 
-fn main() {
+fn is_filepath_same(handle: HANDLE, file_path: &String) -> bool {
+    let handle_info = get_handle_info(handle);
+    if let Ok(Some(handle_info)) = handle_info {
+        if handle_info == *file_path {
+            return true;
+        }
+    }
+    false
+}
+
+fn handle_check(pid: u32, handle_value: u32, file_path: String) -> Result<(), api::STATUS> {
+    let duplicated_handle = {
+        let target_process_handle = api::open_process(pid as u32, PROCESS_DUP_HANDLE);
+        let duplicated_handle = api::duplicate_handle(handle_value as HANDLE, target_process_handle);
+        api::close_handle(target_process_handle);
+        duplicated_handle
+    };
+
+    if duplicated_handle.is_none() {
+        return Ok(());
+    }
+    let duplicated_handle = duplicated_handle.unwrap();
+
+    // get handle type
+    let handle_type = get_handle_type(duplicated_handle as HANDLE);
+    match handle_type {
+        Ok(Some(handle_type)) => {
+            if !handle_type.starts_with("File") {
+                return Ok(());
+            }
+        },
+        Ok(None) => {
+            return Ok(());
+        },
+        Err(e) => {
+            return Err(e);
+        }
+    }
+
+    if is_filepath_same(duplicated_handle, &file_path) {
+        println!("pid: {} filepath: {}", pid, file_path);
+        if let Some(process_name) = get_process_name(pid) {
+            println!("Process ID: {} is holding the file. Process Name: {}", pid, process_name);
+        }
+    }
+
+    api::close_handle(duplicated_handle);
+
+    Ok(())
+}
+
+#[tokio::main]
+async fn main() {
     // target filepath
-    let file_path = "C:\\Users\\ytani\\git\\blog\\_posts";
+    let file_path = "C:\\Users\\ytani\\git\\winfuser";
     println!("Target file path: {}", file_path);
-    let file_path = CString::new(file_path).unwrap();
 
     let buffer = api::query_system_information(SystemExtendedHandleInformation).map_err(|e| eprintln!("Failed to query system information: {}", e)).unwrap();
     let size_returned = buffer.size;
@@ -110,43 +165,23 @@ fn main() {
             continue;
         }
 
-        if entry.ObjectTypeIndex != 42 {
-            continue;
-        }
+        let (tx, rx) = oneshot::channel();
 
-        // get handle type
-        let handle_type = get_handle_type(entry.HandleValue as HANDLE);
-        if let Ok(Some(handle_type)) = handle_type {
-            if !handle_type.starts_with("File") {
-                continue;
-            }
-        }
-        else {
-            continue;
-        }
+        let pid = entry.UniqueProcessId as u32;
+        let handle = entry.HandleValue as u32;
 
-        let target_process_handle = api::open_process(entry.UniqueProcessId as u32, PROCESS_DUP_HANDLE);
-        
-        let duplicated_handle = api::duplicate_handle(entry.HandleValue as HANDLE, target_process_handle);
-
-        api::close_handle(target_process_handle);
-
-        if duplicated_handle.is_none() {
-            println!("Failed to duplicate handle");
-            continue;
+        tokio::spawn(async move {
+            let result = handle_check(pid, handle, file_path.to_string());
+            tx.send(result).unwrap();
+        });
+        //timeout(Duration::from_secs(1), rx).await.map_err(|e| eprintln!("Timeout: {:?}", e)).map_err(|e| eprintln!("Timeout: {:?}", e)).unwrap_or(Ok(())).unwrap();
+        let wait_process = timeout(Duration::from_secs(1), rx).await;
+        match wait_process {
+            Ok(Ok(Ok(()))) => {},
+            Ok(Ok(Err(e))) => eprintln!("Error: {:?}", e),
+            Ok(Err(e)) => eprintln!("Timeout: {:?}", e),
+            Err(e) => eprintln!("Timeout: {:?}", e),
         }
-        let duplicated_handle = duplicated_handle.unwrap();
-        
-        if let Ok(Some(handle_info)) = get_handle_info(duplicated_handle) {
-            println!("pid: {} filepath: {}", entry.UniqueProcessId, handle_info);
-            if handle_info == file_path.to_str().unwrap() {
-                if let Some(process_name) = get_process_name(entry.UniqueProcessId as u32) {
-                    println!("Process ID: {} is holding the file. Process Name: {}", entry.UniqueProcessId, process_name);
-                }
-            }
-        }
-
-        api::close_handle(duplicated_handle);
     }
 
     api::vfree(buffer, size_returned as usize);
