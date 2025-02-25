@@ -13,12 +13,16 @@ mod api;
 
 const NETWORK_DEVICE_PREFIX: &str = "\\Device\\Mup";
 
+pub trait WinFuserTrait {
+    fn search_filepath(&self, file_path: &str) -> Option<&[Pid]>;
+    fn get_files_by_pid(&self, pid: Pid) -> Vec<&str>;
+}
+
 pub type Pid = u32;
 pub type FileToPidsMap = HashMap<String, Vec<Pid>>;
 pub struct WinFuserStruct {
     pub hashmap: FileToPidsMap,
 }
-
 impl WinFuserStruct {
     pub fn get() -> Result<Self, api::Status> {
         let mut hashmap = FileToPidsMap::new();
@@ -54,24 +58,18 @@ impl WinFuserStruct {
 
         Ok(Self { hashmap })
     }
-
-    pub fn search_filepath_in_map(&self, file_path: &str) -> Option<Vec<Pid>> {
-        if self.hashmap.contains_key(file_path) {
-            Some(self.hashmap.get(file_path).unwrap().clone())
-        }
-        else {
-            None
-        }
+}
+impl WinFuserTrait for WinFuserStruct {
+    fn search_filepath(&self, file_path: &str) -> Option<&[Pid]> {
+        self.hashmap.get(file_path).map(|pids| pids.as_slice())
     }
 
-    pub fn get_files_list_by_pid(&self, pid: Pid) -> Vec<String> {
-        let mut files = Vec::new();
-        for (elem_filepath, elem_pids) in self.hashmap.iter() {
-            if elem_pids.iter().any(|&elem_pid| elem_pid == pid) {
-                files.push(elem_filepath.clone());
-            }
-        }
-        files
+    fn get_files_by_pid(&self, pid: Pid) -> Vec<&str> {
+        self.hashmap
+            .iter()
+            .filter(|(_, elem_pids)| elem_pids.contains(&pid))
+            .map(|(elem_filepath, _)| elem_filepath.as_str())
+            .collect()
     }
 }
 

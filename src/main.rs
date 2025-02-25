@@ -1,14 +1,15 @@
 mod winfuser;
+use crate::winfuser::{ WinFuserStruct, WinFuserTrait };
 
 fn main() {
     // target filepath
     let file_path = "C:\\Users\\ytani";
     println!("Target file path: {}", file_path);
 
-    let proc_opened_files = winfuser::WinFuserStruct::get().map_err(|e| {
+    let proc_opened_files = WinFuserStruct::get().map_err(|e| {
         println!("Error: {:?}", e);
     }).unwrap();
-    let pids = proc_opened_files.search_filepath_in_map(file_path);
+    let pids = proc_opened_files.search_filepath(file_path);
     
     if let Some(pids) = pids {
         for pid in pids.iter() {
@@ -22,7 +23,7 @@ fn main() {
     }
 
     let query_pid = 15368;
-    let files = proc_opened_files.get_files_list_by_pid(query_pid);
+    let files = proc_opened_files.get_files_by_pid(query_pid);
     if files.len() > 0 {
         println!("Files opened by process ID: {}", query_pid);
         for file in files.iter() {
