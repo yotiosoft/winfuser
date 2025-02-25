@@ -14,7 +14,7 @@ mod api;
 const NETWORK_DEVICE_PREFIX: &str = "\\Device\\Mup";
 
 type Pid = u32;
-type ProcOpenedFiles = HashMap<String, Vec<Pid>>;
+type FileToPidsMap = HashMap<String, Vec<Pid>>;
 
 fn get_process_name(process_id: u32) -> Option<String> {
     let handle = api::open_process(process_id, 0x0410);
@@ -89,7 +89,7 @@ fn get_handle_filepath(handle: &api::Handle) -> Result<Option<String>, api::Stat
     Ok(Some(filepath))
 }
 
-fn entry_to_filepath(pid: u32, handle_value: api::NotOpenedHandle, file_path: String) -> Result<Option<api::Handle>, api::Status> {
+fn entry_to_filepath(pid: u32, handle_value: api::NotOpenedHandle) -> Result<Option<api::Handle>, api::Status> {
     let duplicated_handle = {
         let target_process_handle = api::open_process(pid, PROCESS_DUP_HANDLE);
         if target_process_handle.handle.is_null() {
@@ -129,15 +129,11 @@ fn entry_to_filepath(pid: u32, handle_value: api::NotOpenedHandle, file_path: St
     Ok(Some(duplicated_handle))
 }
 
-fn main() {
-    // target filepath
-    let file_path = "C:\\Users\\ytani\\git\\blog\\_posts";
-    println!("Target file path: {}", file_path);
-
+fn query_file_to_pids_map() -> FileToPidsMap {
     let buffer = api::query_system_information(SystemExtendedHandleInformation).map_err(|e| eprintln!("Failed to query system information: {}", e)).unwrap();
     let handle_info = api::buffer_to_system_handle_information_ex(buffer);
 
-    let mut proc_opened_files: ProcOpenedFiles = HashMap::new();
+    let mut proc_opened_files: FileToPidsMap = HashMap::new();
     for entry in handle_info.handles.iter() {
         if entry.UniqueProcessId as u32 == std::process::id() {
             continue;
@@ -145,7 +141,7 @@ fn main() {
 
         let pid = entry.UniqueProcessId as u32;
         let handle_value = entry.HandleValue as api::NotOpenedHandle;
-        let duplicated_handle = entry_to_filepath(pid, handle_value, file_path.to_string()).map_err(|e| eprintln!("Error: {:?}", e)).unwrap();
+        let duplicated_handle = entry_to_filepath(pid, handle_value).map_err(|e| eprintln!("Error: {:?}", e)).unwrap();
         if duplicated_handle.is_none() {
             continue;
         }
@@ -156,16 +152,56 @@ fn main() {
         }
     }
 
-    // ファイルを開いているプロセスを表示
+    proc_opened_files
+}
+
+fn search_filepath_in_map(file_path: &str, proc_opened_files: &FileToPidsMap) -> Option<Vec<Pid>> {
+    if proc_opened_files.contains_key(file_path) {
+        Some(proc_opened_files.get(file_path).unwrap().clone())
+    }
+    else {
+        None
+    }
+}
+
+fn get_files_list_by_pid(pid: Pid, proc_opened_files: &FileToPidsMap) -> Vec<String> {
+    let mut files = Vec::new();
     for (elem_filepath, elem_pids) in proc_opened_files.iter() {
-        //if files.iter().map(|file_profile| &file_profile.file_path).any(|profile_file_path| profile_file_path == file_path) {
-        if elem_filepath == file_path {
-            println!("File path: {}", elem_filepath);
-            for pid in elem_pids.iter() {
-                if let Some(process_name) = get_process_name(*pid) {
-                    println!("Process ID: {} is holding the file. Process Name: {}", pid, process_name);
-                }
+        if elem_pids.iter().any(|&elem_pid| elem_pid == pid) {
+            files.push(elem_filepath.clone());
+        }
+    }
+    files
+}
+
+fn main() {
+    // target filepath
+    let file_path = "C:\\Users\\ytani\\git";
+    println!("Target file path: {}", file_path);
+
+    let proc_opened_files = query_file_to_pids_map();
+    let pids = search_filepath_in_map(file_path, &proc_opened_files);
+    
+    if let Some(pids) = pids {
+        for pid in pids.iter() {
+            if let Some(process_name) = get_process_name(*pid) {
+                println!("Process ID: {} is holding the file. Process Name: {}", pid, process_name);
             }
         }
+    }
+    else {
+        println!("No process is holding the file.");
+    }
+
+    let query_pid = 15368;
+    let files = get_files_list_by_pid(query_pid, &proc_opened_files);
+    if files.len() > 0 {
+        println!("Files opened by process ID: {}", query_pid);
+        for file in files.iter() {
+            println!("{}", file);
+        }
+    }
+    else {
+        println!("No file is opened by this process.");
     }
 }
