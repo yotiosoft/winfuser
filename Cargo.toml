@@ -4,5 +4,6 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+clap = { version = "4.5.31", features = ["derive"] }
 ntapi = "0.4.1"
 winapi = { version = "0.3.9", features = ["winuser", "handleapi", "processthreadsapi", "fileapi", "errhandlingapi", "sysinfoapi", "winbase", "ntdef", "processenv", "psapi", "memoryapi", "ntstatus"] }
