@@ -274,4 +274,15 @@ dependencies = [
  "clap",
  "ntapi",
  "winapi",
+ "winprocinfo",
+]
+
+[[package]]
+name = "winprocinfo"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "20768800e10525741546d9ebaf075bb7b23c547945c5ca0f8a31860fe52144a2"
+dependencies = [
+ "ntapi",
+ "winapi",
 ]
