@@ -219,8 +219,8 @@ pub fn duplicate_handle(object_handle: NotOpenedHandle, target_process_handle: H
     Some(Handle::new(duplicated_handle))
 }
 
-pub fn open_process(process_id: u32, access: u32) -> Handle {
-    let raw_handle  = unsafe { OpenProcess(access, 0, process_id) };
+pub fn open_process(process_id: &u32, access: u32) -> Handle {
+    let raw_handle  = unsafe { OpenProcess(access, 0, *process_id) };
     Handle::new(raw_handle)
 }
 

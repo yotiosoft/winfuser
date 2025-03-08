@@ -4,76 +4,25 @@ extern crate ntapi;
 use std::ffi::OsStr;
 use std::os::windows::ffi::OsStrExt;
 use ntapi::ntobapi::{ ObjectTypeInformation, ObjectNameInformation };
-use ntapi::ntexapi::SystemExtendedHandleInformation;
 use winapi::um::winnt::PROCESS_DUP_HANDLE;
 use winapi::um::winbase::FILE_TYPE_DISK;
-use std::collections::HashMap;
 
 mod api;
+mod file2processes;
+pub use file2processes::FileToProcesses;
+mod process2files;
+pub use process2files::ProcessToFiles;
 
 const NETWORK_DEVICE_PREFIX: &str = "\\Device\\Mup";
 
 pub trait WinFuserTrait {
-    fn search_filepath(&self, file_path: &str) -> Option<&[Pid]>;
-    fn get_files_by_pid(&self, pid: Pid) -> Vec<&str>;
+    fn get() -> Result<Self, api::Status> where Self: Sized;
 }
 
 pub type Pid = u32;
-pub type FileToPidsMap = HashMap<String, Vec<Pid>>;
-pub struct WinFuserStruct {
-    pub hashmap: FileToPidsMap,
-}
-impl WinFuserStruct {
-    pub fn get() -> Result<Self, api::Status> {
-        let mut hashmap = FileToPidsMap::new();
-        let buffer = api::query_system_information(SystemExtendedHandleInformation)?;
-        let handle_info = api::buffer_to_system_handle_information_ex(buffer);
 
-        for entry in handle_info.handles.iter() {
-            if entry.UniqueProcessId as u32 == std::process::id() {
-                continue;
-            }
 
-            let pid = entry.UniqueProcessId as u32;
-            let handle_value = entry.HandleValue as api::NotOpenedHandle;
-            let duplicated_handle = entry_to_filepath(pid, handle_value)?;
-            if duplicated_handle.is_none() {
-                continue;
-            }
-            let duplicated_handle = duplicated_handle.unwrap();
-
-            let filepath = get_handle_filepath(&duplicated_handle);
-            match filepath {
-                Ok(Some(filepath)) => {
-                    hashmap.entry(filepath).or_insert(Vec::new()).push(pid);
-                },
-                Ok(None) => {
-                    continue;
-                },
-                Err(e) => {
-                    return Err(e);
-                }
-            }
-        }
-
-        Ok(Self { hashmap })
-    }
-}
-impl WinFuserTrait for WinFuserStruct {
-    fn search_filepath(&self, file_path: &str) -> Option<&[Pid]> {
-        self.hashmap.get(file_path).map(|pids| pids.as_slice())
-    }
-
-    fn get_files_by_pid(&self, pid: Pid) -> Vec<&str> {
-        self.hashmap
-            .iter()
-            .filter(|(_, elem_pids)| elem_pids.contains(&pid))
-            .map(|(elem_filepath, _)| elem_filepath.as_str())
-            .collect()
-    }
-}
-
-pub fn get_process_name(process_id: u32) -> Option<String> {
+pub fn get_process_name(process_id: &u32) -> Option<String> {
     let handle = api::open_process(process_id, 0x0410);
     if handle.handle.is_null() {
         return None;
@@ -148,7 +97,7 @@ fn get_handle_filepath(handle: &api::Handle) -> Result<Option<String>, api::Stat
 
 fn entry_to_filepath(pid: u32, handle_value: api::NotOpenedHandle) -> Result<Option<api::Handle>, api::Status> {
     let duplicated_handle = {
-        let target_process_handle = api::open_process(pid, PROCESS_DUP_HANDLE);
+        let target_process_handle = api::open_process(&pid, PROCESS_DUP_HANDLE);
         if target_process_handle.handle.is_null() {
             None
         }

@@ -1,19 +1,19 @@
 use winprocinfo;
 
 mod winfuser;
-use crate::winfuser::{ WinFuserStruct, WinFuserTrait };
+use crate::winfuser::{ FileToProcesses, ProcessToFiles, WinFuserTrait };
 
 mod parse;
 
 fn by_filepath(file_path: &str) {
-    let proc_opened_files = WinFuserStruct::get().map_err(|e| {
+    let proc_opened_files = FileToProcesses::get().map_err(|e| {
         println!("Error: {:?}", e);
     }).unwrap();
-    let pids = proc_opened_files.search_filepath(&file_path);
+    let pids = proc_opened_files.get_pids_by_filepath(&file_path);
     
-    if let Some(pids) = pids {
+    if pids.len() > 0 {
         for pid in pids.iter() {
-            if let Some(process_name) = winfuser::get_process_name(*pid) {
+            if let Some(process_name) = winfuser::get_process_name(pid) {
                 println!("Process ID: {} is holding the file. Process Name: {}", pid, process_name);
             }
         }
@@ -23,11 +23,8 @@ fn by_filepath(file_path: &str) {
     }
 }
 
-fn by_pid(pid: u32) {
-    let proc_opened_files = WinFuserStruct::get().map_err(|e| {
-        println!("Error: {:?}", e);
-    }).unwrap();
-    let files = proc_opened_files.get_files_by_pid(pid);
+fn by_pid(pid: u32, process_to_files: &ProcessToFiles) {
+    let files = process_to_files.get_files_by_pid(pid);
     if files.len() > 0 {
         println!("Files opened by process ID: {}", pid);
         for file in files.iter() {
@@ -51,7 +48,13 @@ fn main() {
     // pid mode.
     else if args.pid.is_some() {
         let pid = args.pid.unwrap();
-        by_pid(pid);
+
+        // Get all processes and their opened files.
+        let proc_opened_files = ProcessToFiles::get().map_err(|e| {
+            println!("Error: {:?}", e);
+        }).unwrap();
+
+        by_pid(pid, &proc_opened_files);
     }
     // Process name mode.
     else if args.name_of_process.is_some() {
@@ -68,9 +71,14 @@ fn main() {
             }
         };
         if let Some(pids) = pids {
+            // Get all processes and their opened files.
+            let proc_opened_files = ProcessToFiles::get().map_err(|e| {
+                println!("Error: {:?}", e);
+            }).unwrap();
+
             for pid in pids.iter() {
                 println!("\nProcess name: {} Process ID: {}", process_name, pid);
-                by_pid(*pid);
+                by_pid(*pid, &proc_opened_files);
             }
         }
         else {
