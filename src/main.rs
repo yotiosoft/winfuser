@@ -1,3 +1,4 @@
+use winfuser::single::query_pids_by_file;
 use winprocinfo;
 
 mod winfuser;
@@ -5,11 +6,8 @@ use crate::winfuser::{ FileToProcesses, ProcessToFiles, WinFuserTrait };
 
 mod parse;
 
-fn by_filepath(file_path: &str) {
-    let proc_opened_files = FileToProcesses::get().map_err(|e| {
-        println!("Error: {:?}", e);
-    }).unwrap();
-    let pids = proc_opened_files.get_pids_by_filepath(&file_path);
+fn by_filepath_single(file_path: &str) -> Result<(), winfuser::WinFuserError> {
+    let pids = query_pids_by_file(&file_path)?;
     
     if pids.len() > 0 {
         for pid in pids.iter() {
@@ -21,18 +19,71 @@ fn by_filepath(file_path: &str) {
     else {
         println!("No process is holding the file.");
     }
+    Ok(())
 }
 
-fn by_pid(pid: u32, process_to_files: &ProcessToFiles) {
-    let files = process_to_files.get_files_by_pid(pid);
+fn by_filepath(file_paths: Vec<String>) {
+    let proc_opened_files = FileToProcesses::get().map_err(|e| {
+        println!("Error: {:?}", e);
+    }).unwrap();
+
+    for file_path in file_paths.iter() {
+        let pids = proc_opened_files.find_pids_by_filepath(&file_path);
+        
+        if pids.len() > 0 {
+            println!("File: {}", file_path);
+            for pid in pids.iter() {
+                if let Some(process_name) = winfuser::get_process_name(pid) {
+                    println!("Process ID: {} is holding the file. Process Name: {}", pid, process_name);
+                }
+            }
+        }
+        else {
+            println!("No process is holding the file.");
+        }
+        println!();
+    }
+}
+
+fn by_pid_single(pid: u32) -> Result<(), winfuser::WinFuserError> {
+    let process_name = winfuser::get_process_name(&pid);
+    if process_name.is_none() {
+        println!("No process is found with the ID: {}", pid);
+        return Ok(());
+    }
+
+    let files = winfuser::single::query_files_by_pid(pid)?;
     if files.len() > 0 {
-        println!("Files opened by process ID: {}", pid);
+        println!("Files opened by process ID: {} (process name: {})", pid, process_name.unwrap());
         for file in files.iter() {
             println!("{}", file);
         }
     }
     else {
         println!("No file is opened by this process.");
+    }
+    Ok(())
+}
+
+fn by_pid(pid: Vec<u32>, process_to_files: &ProcessToFiles) {
+    for pid in pid.iter() {
+        let process_name = winfuser::get_process_name(&pid);
+        if process_name.is_none() {
+            println!("No process is found with the ID: {}", pid);
+            continue;
+        }
+
+        let files = process_to_files.find_files_by_pid(*pid);
+        if files.len() > 0 {
+            println!("Files opened by process ID: {}", pid);
+            for file in files.iter() {
+                println!("{}", file);
+            }
+        }
+        else {
+            println!("No file is opened by this process.");
+        }
+        println!();
     }
 }
 
@@ -43,54 +94,59 @@ fn main() {
     // filepath mode.
     if args.file_path.is_some() {
         let file_path = args.file_path.unwrap();
-        by_filepath(&file_path);
+        if file_path.len() == 1 {
+            by_filepath_single(&file_path[0]).map_err(|e| {
+                println!("Error: {:?}", e);
+            }).unwrap();
+        }
+        else if file_path.len() > 1 {
+            by_filepath(file_path);
+        }
     }
     // pid mode.
     else if args.pid.is_some() {
         let pid = args.pid.unwrap();
-        let process_name = winfuser::get_process_name(&pid);
 
-        if let None = process_name {
-            println!("No process is found with the ID.");
-            return;
+        if pid.len() == 1 {
+            by_pid_single(pid[0]).map_err(|e| {
+                println!("Error: {:?}", e);
+            }).unwrap();
         }
-        println!("Process name: {}", process_name.unwrap());
+        else if pid.len() > 1 {
+            // Get all processes and their opened files.
+            let proc_opened_files = ProcessToFiles::get().map_err(|e| {
+                println!("Error: {:?}", e);
+            }).unwrap();
+            by_pid(pid, &proc_opened_files);
+        }
+    }
+    // Process name mode.
+    else if args.name_of_process.is_some() {
+        let process_names = args.name_of_process.unwrap();
 
         // Get all processes and their opened files.
         let proc_opened_files = ProcessToFiles::get().map_err(|e| {
             println!("Error: {:?}", e);
         }).unwrap();
 
-        by_pid(pid, &proc_opened_files);
-    }
-    // Process name mode.
-    else if args.name_of_process.is_some() {
-        let process_name = args.name_of_process.unwrap();
+        for process_name in process_names.iter() {
+            let pids = {
+                let processes = winprocinfo::get_list();
+                if let Ok(processes) = processes {
+                    processes.get_pids_by_name(&process_name)
+                }
+                else {
+                    println!("Error: {}", processes.err().unwrap());
+                    None
+                }
+            };
 
-        let pids = {
-            let processes = winprocinfo::get_list();
-            if let Ok(processes) = processes {
-                processes.get_pids_by_name(&process_name)
+            if let Some(pids) = pids {
+                by_pid(pids, &proc_opened_files);
             }
             else {
-                println!("Error: {}", processes.err().unwrap());
-                None
+                println!("No process is found with the name.");
             }
-        };
-        
-        if let Some(pids) = pids {
-            // Get all processes and their opened files.
-            let proc_opened_files = ProcessToFiles::get().map_err(|e| {
-                println!("Error: {:?}", e);
-            }).unwrap();
-
-            for pid in pids.iter() {
-                println!("\nProcess name: {} Process ID: {}", process_name, pid);
-                by_pid(*pid, &proc_opened_files);
-            }
-        }
-        else {
-            println!("No process is found with the name.");
         }
     }
     // none

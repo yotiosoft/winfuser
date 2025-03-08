@@ -5,15 +5,15 @@ use clap::Parser;
 pub struct Args {
     /// File path to search for.
     #[arg(short, long)]
-    pub file_path: Option<String>,
+    pub file_path: Option<Vec<String>>,
 
     /// Process ID to search for.
     #[arg(short, long)]
-    pub pid: Option<u32>,
+    pub pid: Option<Vec<u32>>,
 
     /// Process name to search for (ex. notepad.exe).
     #[arg(short, long)]
-    pub name_of_process: Option<String>,
+    pub name_of_process: Option<Vec<String>>,
 }
 
 pub fn parse() -> Args {

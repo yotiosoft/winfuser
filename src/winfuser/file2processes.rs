@@ -42,7 +42,7 @@ impl WinFuserTrait for FileToProcesses {
 }
 
 impl FileToProcesses {
-    pub fn get_pids_by_filepath(&self, file_path: &str) -> Vec<Pid> {
+    pub fn find_pids_by_filepath(&self, file_path: &str) -> Vec<Pid> {
         self.hashmap.get(file_path).map(|pids| pids.iter().map(|pid| *pid).collect()).unwrap_or_default()
     }
 }

@@ -42,7 +42,7 @@ impl WinFuserTrait for ProcessToFiles {
 }
 
 impl ProcessToFiles {
-    pub fn get_files_by_pid(&self, pid: u32) -> Vec<&str> {
+    pub fn find_files_by_pid(&self, pid: u32) -> Vec<&str> {
         self.hashmap.get(&pid).map(|files| files.iter().map(|s| s.as_str()).collect()).unwrap_or_default()
     }
 }

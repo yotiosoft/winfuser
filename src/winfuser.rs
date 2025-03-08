@@ -3,6 +3,7 @@ extern crate ntapi;
 
 use std::ffi::OsStr;
 use std::os::windows::ffi::OsStrExt;
+use std::fmt::{Debug, Display};
 use ntapi::ntobapi::{ ObjectTypeInformation, ObjectNameInformation };
 use winapi::um::winnt::PROCESS_DUP_HANDLE;
 use winapi::um::winbase::FILE_TYPE_DISK;
@@ -12,15 +13,31 @@ mod file2processes;
 pub use file2processes::FileToProcesses;
 mod process2files;
 pub use process2files::ProcessToFiles;
+pub mod single;
 
 const NETWORK_DEVICE_PREFIX: &str = "\\Device\\Mup";
+pub type Pid = u32;
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum WinFuserError {
+    WinApiError(api::Status),
+}
+impl Display for WinFuserError {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            WinFuserError::WinApiError(e) => write!(f, "WinApiError: {}", e),
+        }
+    }   
+}
+impl From<api::Status> for WinFuserError {
+    fn from(e: api::Status) -> Self {
+        WinFuserError::WinApiError(e)
+    }
+}
 
 pub trait WinFuserTrait {
     fn get() -> Result<Self, api::Status> where Self: Sized;
 }
-
-pub type Pid = u32;
-
 
 pub fn get_process_name(process_id: &u32) -> Option<String> {
     let handle = api::open_process(process_id, 0x0410);
