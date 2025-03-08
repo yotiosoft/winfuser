@@ -48,6 +48,13 @@ fn main() {
     // pid mode.
     else if args.pid.is_some() {
         let pid = args.pid.unwrap();
+        let process_name = winfuser::get_process_name(&pid);
+
+        if let None = process_name {
+            println!("No process is found with the ID.");
+            return;
+        }
+        println!("Process name: {}", process_name.unwrap());
 
         // Get all processes and their opened files.
         let proc_opened_files = ProcessToFiles::get().map_err(|e| {
@@ -70,6 +77,7 @@ fn main() {
                 None
             }
         };
+        
         if let Some(pids) = pids {
             // Get all processes and their opened files.
             let proc_opened_files = ProcessToFiles::get().map_err(|e| {
