@@ -18,6 +18,16 @@ pub mod single;
 const NETWORK_DEVICE_PREFIX: &str = "\\Device\\Mup";
 pub type Pid = u32;
 
+pub trait PidExt {
+    fn get_pid(&self) -> u32;
+}
+
+impl PidExt for Pid {
+    fn get_pid(&self) -> u32 {
+        *self
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum WinFuserError {
     WinApiError(api::Status),

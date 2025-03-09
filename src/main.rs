@@ -1,4 +1,3 @@
-use winfuser::single::query_pids_by_file;
 use winprocinfo;
 
 mod winfuser;
@@ -7,7 +6,7 @@ use crate::winfuser::{ FileToProcesses, ProcessToFiles, WinFuserTrait };
 mod parse;
 
 fn by_filepath_single(file_path: &str) -> Result<(), winfuser::WinFuserError> {
-    let pids = query_pids_by_file(&file_path)?;
+    let pids = winfuser::single::query_pids_by_file(&file_path)?;
     
     if pids.len() > 0 {
         for pid in pids.iter() {
@@ -174,33 +173,7 @@ fn main() {
     }
     // All processes mode.
     if args.all {
-        // Get all processes and their opened files.
-        let proc_opened_files = ProcessToFiles::get().map_err(|e| {
-            println!("Error: {:?}", e);
-        }).unwrap();
-
-        let processes = winprocinfo::get_list();
-        if let Ok(processes) = processes {
-            for process in processes.iter() {
-                let pid = process.get_pid();
-                let process_name = process.get_name();
-                let files = proc_opened_files.find_files_by_pid(pid);
-
-                if files.len() > 0 {
-                    println!("Files opened by process ID: {} (process name: {})", pid, process_name);
-                    for file in files.iter() {
-                        println!("{}", file);
-                    }
-                }
-                else {
-                    println!("No file is opened by this process.");
-                }
-                println!();
-            }
-        }
-        else {
-            println!("Error: {}", processes.err().unwrap());
-        }
+        all_processes();
     }
     // none
     else {
