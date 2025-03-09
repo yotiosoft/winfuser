@@ -1,7 +1,7 @@
 use winprocinfo;
 
 mod winfuser;
-use crate::winfuser::{ FileToProcesses, ProcessToFiles, WinFuserTrait };
+use crate::winfuser::*;
 
 mod parse;
 
@@ -174,9 +174,5 @@ fn main() {
     // All processes mode.
     if args.all {
         all_processes();
-    }
-    // none
-    else {
-        println!("Please provide either file path with -f or process ID with -p.");
     }
 }

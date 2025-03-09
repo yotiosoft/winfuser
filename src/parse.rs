@@ -21,5 +21,10 @@ pub struct Args {
 }
 
 pub fn parse() -> Args {
-    Args::parse()
+    let args = Args::parse();
+    // none
+    if args.file_path.is_none() && args.pid.is_none() && args.name_of_process.is_none() && !args.all {
+        println!("Please provide either file path with -f or process ID with -p.");
+    }
+    args
 }
