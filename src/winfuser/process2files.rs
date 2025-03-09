@@ -15,7 +15,7 @@ impl WinFuserTrait for ProcessToFiles {
         let handle_info = api::buffer_to_system_handle_information_ex(buffer);
 
         for entry in handle_info.handles.iter() {
-            let pid = Pid::from(entry.UniqueProcessId);
+            let pid = entry.UniqueProcessId as u32;
             let handle_value = entry.HandleValue as api::NotOpenedHandle;
             let duplicated_handle = entry_to_filepath(pid, handle_value)?;
             if duplicated_handle.is_none() {
@@ -43,6 +43,6 @@ impl WinFuserTrait for ProcessToFiles {
 
 impl ProcessToFiles {
     pub fn find_files_by_pid(&self, pid: u32) -> Vec<&str> {
-        self.hashmap.get(&pid.into()).map(|files| files.iter().map(|s| s.as_str()).collect()).unwrap_or_default()
+        self.hashmap.get(&pid).map(|files| files.iter().map(|s| s.as_str()).collect()).unwrap_or_default()
     }
 }

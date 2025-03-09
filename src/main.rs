@@ -11,8 +11,8 @@ fn by_filepath_single(file_path: &str) -> Result<(), winfuser::WinFuserError> {
     
     if pids.len() > 0 {
         for pid in pids.iter() {
-            if let Some(process_name) = winfuser::get_process_name(&pid.get_pid()) {
-                println!("Process ID: {} is holding the file. Process Name: {}", pid.get_pid(), process_name);
+            if let Some(process_name) = winfuser::get_process_name(pid) {
+                println!("Process ID: {} is holding the file. Process Name: {}", pid, process_name);
             }
         }
     }
@@ -94,11 +94,11 @@ fn all_processes() {
 
     for process in proc_opened_files.hashmap.iter() {
         let pid = *process.0;
-        let process_name = winfuser::get_process_name(&pid.get_pid()).unwrap();
+        let process_name = winfuser::get_process_name(&pid).unwrap();
         let files = process.1;
 
         if files.len() > 0 {
-            println!("Files opened by process ID: {} (process name: {})", pid.get_pid(), process_name);
+            println!("Files opened by process ID: {} (process name: {})", pid, process_name);
             for file in files.iter() {
                 println!("{}", file);
             }

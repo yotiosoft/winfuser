@@ -6,11 +6,10 @@ use super::*;
 pub fn query_files_by_pid(pid: u32) -> Result<Vec<String>, WinFuserError> {
     let buffer = api::query_system_information(SystemExtendedHandleInformation)?;
     let handle_info = api::buffer_to_system_handle_information_ex(buffer);
-    let pid = Pid::from(pid);
 
     let mut files = Vec::new();
     for entry in handle_info.handles.iter() {
-        let entry_pid = Pid::from(entry.UniqueProcessId);
+        let entry_pid = entry.UniqueProcessId as u32;
         if entry_pid != pid {
             continue;
         }
@@ -39,13 +38,13 @@ pub fn query_files_by_pid(pid: u32) -> Result<Vec<String>, WinFuserError> {
     Ok(files)
 }
 
-pub fn query_pids_by_file(file_path: &str) -> Result<Vec<Pid>, WinFuserError> {
+pub fn query_pids_by_file(file_path: &str) -> Result<Vec<u32>, WinFuserError> {
     let buffer = api::query_system_information(SystemExtendedHandleInformation)?;
     let handle_info = api::buffer_to_system_handle_information_ex(buffer);
 
     let mut pids = Vec::new();
     for entry in handle_info.handles.iter() {
-        let pid = Pid::from(entry.UniqueProcessId);
+        let pid = entry.UniqueProcessId as u32;
         let handle_value = entry.HandleValue as api::NotOpenedHandle;
         let duplicated_handle = entry_to_filepath(pid, handle_value)?;
         if duplicated_handle.is_none() {
