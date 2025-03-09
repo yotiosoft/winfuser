@@ -11,8 +11,8 @@ fn by_filepath_single(file_path: &str) -> Result<(), winfuser::WinFuserError> {
     
     if pids.len() > 0 {
         for pid in pids.iter() {
-            if let Some(process_name) = winfuser::get_process_name(pid) {
-                println!("Process ID: {} is holding the file. Process Name: {}", pid, process_name);
+            if let Some(process_name) = winfuser::get_process_name(&pid.get_pid()) {
+                println!("Process ID: {} is holding the file. Process Name: {}", pid.get_pid(), process_name);
             }
         }
     }
@@ -87,6 +87,29 @@ fn by_pid(pid: Vec<u32>, process_to_files: &ProcessToFiles) {
     }
 }
 
+fn all_processes() {
+    let proc_opened_files = ProcessToFiles::get().map_err(|e| {
+        println!("Error: {:?}", e);
+    }).unwrap();
+
+    for process in proc_opened_files.hashmap.iter() {
+        let pid = *process.0;
+        let process_name = winfuser::get_process_name(&pid.get_pid()).unwrap();
+        let files = process.1;
+
+        if files.len() > 0 {
+            println!("Files opened by process ID: {} (process name: {})", pid.get_pid(), process_name);
+            for file in files.iter() {
+                println!("{}", file);
+            }
+        }
+        else {
+            println!("No file is opened by this process.");
+        }
+        println!();
+    }
+}
+
 fn main() {
     // Parse command line arguments
     let args = parse::parse();
@@ -104,7 +127,7 @@ fn main() {
         }
     }
     // pid mode.
-    else if args.pid.is_some() {
+    if args.pid.is_some() {
         let pid = args.pid.unwrap();
 
         if pid.len() == 1 {
@@ -121,7 +144,7 @@ fn main() {
         }
     }
     // Process name mode.
-    else if args.name_of_process.is_some() {
+    if args.name_of_process.is_some() {
         let process_names = args.name_of_process.unwrap();
 
         // Get all processes and their opened files.
@@ -147,6 +170,36 @@ fn main() {
             else {
                 println!("No process is found with the name.");
             }
+        }
+    }
+    // All processes mode.
+    if args.all {
+        // Get all processes and their opened files.
+        let proc_opened_files = ProcessToFiles::get().map_err(|e| {
+            println!("Error: {:?}", e);
+        }).unwrap();
+
+        let processes = winprocinfo::get_list();
+        if let Ok(processes) = processes {
+            for process in processes.iter() {
+                let pid = process.get_pid();
+                let process_name = process.get_name();
+                let files = proc_opened_files.find_files_by_pid(pid);
+
+                if files.len() > 0 {
+                    println!("Files opened by process ID: {} (process name: {})", pid, process_name);
+                    for file in files.iter() {
+                        println!("{}", file);
+                    }
+                }
+                else {
+                    println!("No file is opened by this process.");
+                }
+                println!();
+            }
+        }
+        else {
+            println!("Error: {}", processes.err().unwrap());
         }
     }
     // none

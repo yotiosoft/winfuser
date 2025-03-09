@@ -17,7 +17,7 @@ impl WinFuserTrait for FileToProcesses {
         for entry in handle_info.handles.iter() {
             let pid = entry.UniqueProcessId as u32;
             let handle_value = entry.HandleValue as api::NotOpenedHandle;
-            let duplicated_handle = entry_to_filepath(pid, handle_value)?;
+            let duplicated_handle = entry_to_filepath(pid.into(), handle_value)?;
             if duplicated_handle.is_none() {
                 continue;
             }
@@ -26,7 +26,7 @@ impl WinFuserTrait for FileToProcesses {
             let filepath = get_handle_filepath(&duplicated_handle);
             match filepath {
                 Ok(Some(filepath)) => {
-                    hashmap.entry(filepath).or_insert(Vec::new()).push(pid);
+                    hashmap.entry(filepath).or_insert(Vec::new()).push(pid.into());
                 },
                 Ok(None) => {
                     continue;

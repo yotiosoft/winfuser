@@ -16,7 +16,40 @@ pub use process2files::ProcessToFiles;
 pub mod single;
 
 const NETWORK_DEVICE_PREFIX: &str = "\\Device\\Mup";
-pub type Pid = u32;
+
+#[derive(Hash, Eq, PartialEq, Copy, Debug)]
+pub struct Pid(u32);
+
+impl Pid {
+    pub fn get_pid(&self) -> u32 {
+        self.0
+    }
+}
+impl From<u32> for Pid {
+    fn from(pid: u32) -> Self {
+        Pid(pid)
+    }
+}
+impl Into<u32> for Pid {
+    fn into(self) -> u32 {
+        self.0
+    }
+}
+impl From<usize> for Pid {
+    fn from(pid: usize) -> Self {
+        Pid(pid as u32)
+    }
+}
+impl Into<usize> for Pid {
+    fn into(self) -> usize {
+        self.0 as usize
+    }
+}
+impl Clone for Pid {
+    fn clone(&self) -> Self {
+        Pid(self.0)
+    }
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum WinFuserError {
@@ -112,9 +145,9 @@ fn get_handle_filepath(handle: &api::Handle) -> Result<Option<String>, api::Stat
     Ok(Some(filepath))
 }
 
-fn entry_to_filepath(pid: u32, handle_value: api::NotOpenedHandle) -> Result<Option<api::Handle>, api::Status> {
+fn entry_to_filepath(pid: Pid, handle_value: api::NotOpenedHandle) -> Result<Option<api::Handle>, api::Status> {
     let duplicated_handle = {
-        let target_process_handle = api::open_process(&pid, PROCESS_DUP_HANDLE);
+        let target_process_handle = api::open_process(&pid.into(), PROCESS_DUP_HANDLE);
         if target_process_handle.handle.is_null() {
             None
         }

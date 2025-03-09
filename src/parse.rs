@@ -14,6 +14,10 @@ pub struct Args {
     /// Process name to search for (ex. notepad.exe).
     #[arg(short, long)]
     pub name_of_process: Option<Vec<String>>,
+
+    /// All processes.
+    #[arg(short, long)]
+    pub all: bool,
 }
 
 pub fn parse() -> Args {
