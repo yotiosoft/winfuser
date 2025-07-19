@@ -18,12 +18,15 @@ pub type Status = i32;
 pub type NotOpenedHandle = u64;
 
 pub struct Buffer {
-    pub buffer: *mut winapi::ctypes::c_void,
+    pub buffer: Option<*mut winapi::ctypes::c_void>,
     pub size: usize,
 }
 impl Drop for Buffer {
     fn drop(&mut self) {
-        vfree(self.buffer, self.size);
+        if let Some(buffer) = self.buffer {
+            // Free the allocated memory
+            vfree(buffer, self.size);
+        }
     }
 }
 
@@ -48,70 +51,134 @@ pub struct WfSystemHandleInformationEx {
     pub handles: Vec<SYSTEM_HANDLE_TABLE_ENTRY_INFO_EX>,
 }
 
-pub fn query_system_information(system_information_class: u32) -> Result<Buffer, Status> {
-    let mut buffer = valloc(32);
-    let mut size_returned = 32;
+impl Buffer {
+    pub fn new() -> Buffer {
+        Buffer {
+            buffer: None,
+            size: 0,
+        }
+    }
 
-    let status = loop {
-        let before_length = size_returned;
-        let status = unsafe {
-            NtQuerySystemInformation(
-                system_information_class,
-                buffer,
-                size_returned,
-                &mut size_returned,
-            )
+    pub fn nt_query_object(handle: &Handle, object_information_class: u32) -> Result<Self, Status> {
+        let mut this = Buffer::new();
+
+        let mut size_returned = 1024;
+        let mut buffer = valloc(size_returned as usize);
+
+        let status = loop {
+            let before_length = size_returned;
+            let status = unsafe {
+                NtQueryObject(
+                    handle.handle,
+                    object_information_class,
+                    buffer,
+                    size_returned,
+                    &mut size_returned,
+                )
+            };
+
+            if status == STATUS_BUFFER_TOO_SMALL || status == STATUS_INFO_LENGTH_MISMATCH {
+                vfree(buffer, before_length as usize);
+                buffer = valloc(size_returned as usize);
+            } else {
+                break status;
+            }
         };
 
-        if status == STATUS_BUFFER_TOO_SMALL || status == STATUS_INFO_LENGTH_MISMATCH {
-            vfree(buffer, before_length as usize);
-            buffer = valloc(size_returned as usize);
-        } else {
-            break status;
+        if !NT_SUCCESS(status) {
+            vfree(buffer, size_returned as usize);
+            return Err(status);
         }
-    };
 
-    if !NT_SUCCESS(status) {
-        eprintln!("Failed to query system information.");
-        vfree(buffer, size_returned as usize);
-        return Err(status);
+        this.buffer = Some(buffer);
+        this.size = size_returned as usize;
+
+        Ok(this)
     }
 
-    Ok(Buffer { buffer, size: size_returned as usize })
-}
+    pub fn query_system_information(system_information_class: u32) -> Result<Self, Status> {
+        let mut this = Buffer::new();
 
-pub fn buffer_to_system_handle_information_ex(buffer: Buffer) -> WfSystemHandleInformationEx {
-    let system_handle_information_ex = unsafe { &*(buffer.buffer as *const SYSTEM_HANDLE_INFORMATION_EX) };
-    let number_of_handles = system_handle_information_ex.NumberOfHandles as usize;
-    let reserved = system_handle_information_ex.Reserved as usize;
-    let handles = unsafe {
-        std::slice::from_raw_parts(
-            system_handle_information_ex.Handles.as_ptr(),
-            number_of_handles,
-        )
+        let mut buffer = valloc(32);
+        let mut size_returned = 32;
+
+        let status = loop {
+            let before_length = size_returned;
+            let status = unsafe {
+                NtQuerySystemInformation(
+                    system_information_class,
+                    buffer,
+                    size_returned,
+                    &mut size_returned,
+                )
+            };
+
+            if status == STATUS_BUFFER_TOO_SMALL || status == STATUS_INFO_LENGTH_MISMATCH {
+                vfree(buffer, before_length as usize);
+                buffer = valloc(size_returned as usize);
+            } else {
+                break status;
+            }
+        };
+
+        if !NT_SUCCESS(status) {
+            eprintln!("Failed to query system information.");
+            vfree(buffer, size_returned as usize);
+            return Err(status);
+        }
+
+        this.buffer = Some(buffer);
+        this.size = size_returned as usize;
+
+        Ok(this)
     }
-    .to_vec();
 
-    WfSystemHandleInformationEx {
-        number_of_handles,
-        reserved,
-        handles,
+    pub fn buffer_to_system_handle_information_ex(&self) -> Option<WfSystemHandleInformationEx> {
+        if let Some(buffer) = self.buffer {
+            let system_handle_information_ex = unsafe { &*(buffer as *const SYSTEM_HANDLE_INFORMATION_EX) };
+            let number_of_handles = system_handle_information_ex.NumberOfHandles as usize;
+            let reserved = system_handle_information_ex.Reserved as usize;
+            let handles = unsafe {
+                std::slice::from_raw_parts(
+                    system_handle_information_ex.Handles.as_ptr(),
+                    number_of_handles,
+                )
+            }
+            .to_vec();
+
+            Some(WfSystemHandleInformationEx {
+                number_of_handles,
+                reserved,
+                handles,
+            })
+        }
+        else {
+            None
+        }
     }
-}
 
-pub fn buffer_to_object_type_information(buffer: Buffer) -> OBJECT_TYPE_INFORMATION {
-    unsafe { *(buffer.buffer as *const OBJECT_TYPE_INFORMATION) }
-}
+    pub fn buffer_to_object_type_information(&self) -> Option<OBJECT_TYPE_INFORMATION> {
+        if let Some(buffer) = self.buffer {
+            unsafe { Some(*(buffer as *const OBJECT_TYPE_INFORMATION)) }
+        } else {
+            None
+        }
+    }
 
-pub fn buffer_to_name_string(buffer: Buffer) -> String {
-    let name_info = unsafe { &*(buffer.buffer as *const OBJECT_NAME_INFORMATION) };
-    let name_slice = unsafe {
-        std::slice::from_raw_parts(
-            name_info.Name.Buffer,
-            (name_info.Name.Length / 2) as usize,
-        )
-    };
-    String::from_utf16_lossy(name_slice)
+    pub fn buffer_to_name_string(&self) -> String {
+        if let Some(buffer) = self.buffer {
+            let name_info = unsafe { &*(buffer as *const OBJECT_NAME_INFORMATION) };
+            let name_slice = unsafe {
+                std::slice::from_raw_parts(
+                    name_info.Name.Buffer,
+                    (name_info.Name.Length / 2) as usize,
+                )
+            };
+            String::from_utf16_lossy(name_slice)
+        } else {
+            String::new()
+        }
+    }
 }
 
 pub fn query_dos_device(device_name_u16: *const u16) -> Option<String> {
@@ -131,38 +198,6 @@ pub fn query_dos_device(device_name_u16: *const u16) -> Option<String> {
     let path = String::from_utf16_lossy(&buffer[..result as usize]);
 
     Some(path)
-}
-
-pub fn nt_query_object(handle: &Handle, object_information_class: u32) -> Result<Buffer, Status> {
-    let mut size_returned = 1024;
-    let mut buffer = valloc(size_returned as usize);
-
-    let status = loop {
-        let before_length = size_returned;
-        let status = unsafe {
-            NtQueryObject(
-                handle.handle,
-                object_information_class,
-                buffer,
-                size_returned,
-                &mut size_returned,
-            )
-        };
-
-        if status == STATUS_BUFFER_TOO_SMALL || status == STATUS_INFO_LENGTH_MISMATCH {
-            vfree(buffer, before_length as usize);
-            buffer = valloc(size_returned as usize);
-        } else {
-            break status;
-        }
-    };
-
-    if !NT_SUCCESS(status) {
-        vfree(buffer, size_returned as usize);
-        return Err(status);
-    }
-
-    Ok(Buffer { buffer, size: size_returned as usize })
 }
 
 pub fn get_module_base_name(handle: Handle) -> Option<String> {

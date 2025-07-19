@@ -76,8 +76,12 @@ fn get_dos_device_path(device_path: &str) -> (String, bool) {
 }
 
 fn get_handle_type(handle: &api::Handle) -> Result<Option<String>, api::Status> {
-    let buffer = api::nt_query_object(handle, ObjectTypeInformation)?;
-    let type_info = api::buffer_to_object_type_information(buffer);
+    let buffer = api::Buffer::nt_query_object(handle, ObjectTypeInformation)?;
+    let type_info = buffer.buffer_to_object_type_information();
+    if type_info.is_none() {
+        return Ok(None);
+    }
+    let type_info = type_info.unwrap();
     if type_info.TypeName.Length == 0 {
         return Ok(None);
     }
@@ -90,8 +94,8 @@ fn get_handle_type(handle: &api::Handle) -> Result<Option<String>, api::Status> 
 }
 
 fn get_handle_filepath(handle: &api::Handle) -> Result<Option<String>, api::Status> {
-    let buffer = api::nt_query_object(handle, ObjectNameInformation)?;
-    let device_path = api::buffer_to_name_string(buffer);
+    let buffer = api::Buffer::nt_query_object(handle, ObjectNameInformation)?;
+    let device_path = buffer.buffer_to_name_string();
     if device_path.len() == 0 {
         return Ok(None);
     }
