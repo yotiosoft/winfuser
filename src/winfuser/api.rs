@@ -38,7 +38,55 @@ impl Drop for Handle {
 }
 impl Handle {
     pub fn new(handle: HANDLE) -> Handle {
-        Handle { handle: handle}
+        Handle { handle: handle }
+    }
+
+    pub fn get_module_base_name(&self) -> Option<String> {
+        let mut buffer = vec![0u8; 1024];
+        let ret = unsafe {
+            GetModuleBaseNameA(
+                self.handle,
+                ptr::null_mut(),
+                buffer.as_mut_ptr() as *mut i8,
+                buffer.len() as u32,
+            )
+        };
+
+        if ret > 0 {
+            Some(String::from_utf8_lossy(&buffer[..ret as usize]).to_string())
+        } else {
+            None
+        }
+    }
+
+    pub fn duplicate_handle(&self, object_handle: NotOpenedHandle) -> Option<Handle> {
+        let mut duplicated_handle: HANDLE = ptr::null_mut();
+        let object_handle = object_handle as HANDLE;
+        let target_process_handle = self.handle;
+        let duplicate_status = unsafe {
+            DuplicateHandle(
+                target_process_handle,
+                object_handle,
+                GetCurrentProcess(),
+                &mut duplicated_handle,
+                0,
+                FALSE,
+                DUPLICATE_SAME_ACCESS,
+            )
+        };
+        if duplicate_status == FALSE {
+            return None;
+        }
+        Some(Handle::new(duplicated_handle))
+    }
+
+    pub fn open_process(process_id: &u32, access: u32) -> Self {
+        let raw_handle  = unsafe { OpenProcess(access, 0, *process_id) };
+        Self::new(raw_handle)
+    }
+
+    pub fn get_file_type(&self) -> u32 {
+        unsafe { GetFileType(self.handle) }
     }
 }
 
@@ -209,24 +257,6 @@ pub fn query_dos_device(device_name_u16: *const u16) -> Option<String> {
     Some(path)
 }
 
-pub fn get_module_base_name(handle: Handle) -> Option<String> {
-    let mut buffer = vec![0u8; 1024];
-    let ret = unsafe {
-        GetModuleBaseNameA(
-            handle.handle,
-            ptr::null_mut(),
-            buffer.as_mut_ptr() as *mut i8,
-            buffer.len() as u32,
-        )
-    };
-
-    if ret > 0 {
-        Some(String::from_utf8_lossy(&buffer[..ret as usize]).to_string())
-    } else {
-        None
-    }
-}
-
 pub fn read_process_memory_u16(address: *const winapi::ctypes::c_void, size: usize) -> Vec<u16> {
     let handle = unsafe { GetCurrentProcess() };
     let mut buffer = vec![0u16; size];
@@ -240,34 +270,4 @@ pub fn read_process_memory_u16(address: *const winapi::ctypes::c_void, size: usi
         );
     }
     buffer
-}
-
-pub fn duplicate_handle(object_handle: NotOpenedHandle, target_process_handle: Handle) -> Option<Handle> {
-    let mut duplicated_handle: HANDLE = ptr::null_mut();
-    let object_handle = object_handle as HANDLE;
-    let target_process_handle = target_process_handle.handle;
-    let duplicate_status = unsafe {
-        DuplicateHandle(
-            target_process_handle,
-            object_handle,
-            GetCurrentProcess(),
-            &mut duplicated_handle,
-            0,
-            FALSE,
-            DUPLICATE_SAME_ACCESS,
-        )
-    };
-    if duplicate_status == FALSE {
-        return None;
-    }
-    Some(Handle::new(duplicated_handle))
-}
-
-pub fn open_process(process_id: &u32, access: u32) -> Handle {
-    let raw_handle  = unsafe { OpenProcess(access, 0, *process_id) };
-    Handle::new(raw_handle)
-}
-
-pub fn get_file_type(handle: &Handle) -> u32 {
-    unsafe { GetFileType(handle.handle) }
 }

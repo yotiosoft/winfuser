@@ -40,11 +40,11 @@ pub trait WinFuserTrait {
 }
 
 pub fn get_process_name(process_id: &u32) -> Option<String> {
-    let handle = api::open_process(process_id, 0x0410);
+    let handle = api::Handle::open_process(process_id, 0x0410);
     if handle.handle.is_null() {
         return None;
     }
-    api::get_module_base_name(handle)
+    handle.get_module_base_name()
 }
 
 fn query_dos_device_path(drive_letter: char) -> Option<String> {
@@ -118,12 +118,12 @@ fn get_handle_filepath(handle: &api::Handle) -> Result<Option<String>, api::Stat
 
 fn entry_to_filepath(pid: u32, handle_value: api::NotOpenedHandle) -> Result<Option<api::Handle>, api::Status> {
     let duplicated_handle = {
-        let target_process_handle = api::open_process(&pid, PROCESS_DUP_HANDLE);
+        let target_process_handle = api::Handle::open_process(&pid, PROCESS_DUP_HANDLE);
         if target_process_handle.handle.is_null() {
             None
         }
         else {
-            api::duplicate_handle(handle_value, target_process_handle)
+            target_process_handle.duplicate_handle(handle_value)
         }
     };
     if duplicated_handle.is_none() {
@@ -148,7 +148,7 @@ fn entry_to_filepath(pid: u32, handle_value: api::NotOpenedHandle) -> Result<Opt
     }
 
     // get file type
-    let file_type = api::get_file_type(&duplicated_handle);
+    let file_type = duplicated_handle.get_file_type();
     if file_type != FILE_TYPE_DISK {
         return Ok(None);
     }
