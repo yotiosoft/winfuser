@@ -23,10 +23,8 @@ pub struct Buffer {
 }
 impl Drop for Buffer {
     fn drop(&mut self) {
-        if let Some(buffer) = self.buffer {
-            // Free the allocated memory
-            vfree(buffer, self.size);
-        }
+        // Free the allocated memory
+        self.vfree();
     }
 }
 
@@ -63,10 +61,10 @@ impl Buffer {
         let mut this = Buffer::new();
 
         let mut size_returned = 1024;
-        let mut buffer = valloc(size_returned as usize);
+        let mut buffer = Buffer::valloc(size_returned as usize);
 
         let status = loop {
-            let before_length = size_returned;
+            this.size = size_returned as usize;
             let status = unsafe {
                 NtQueryObject(
                     handle.handle,
@@ -78,15 +76,16 @@ impl Buffer {
             };
 
             if status == STATUS_BUFFER_TOO_SMALL || status == STATUS_INFO_LENGTH_MISMATCH {
-                vfree(buffer, before_length as usize);
-                buffer = valloc(size_returned as usize);
-            } else {
+                this.vfree();
+                buffer = Buffer::valloc(size_returned as usize);
+            }
+            else {
                 break status;
             }
         };
 
         if !NT_SUCCESS(status) {
-            vfree(buffer, size_returned as usize);
+            this.vfree();
             return Err(status);
         }
 
@@ -99,11 +98,11 @@ impl Buffer {
     pub fn query_system_information(system_information_class: u32) -> Result<Self, Status> {
         let mut this = Buffer::new();
 
-        let mut buffer = valloc(32);
+        let mut buffer = Buffer::valloc(32);
         let mut size_returned = 32;
 
         let status = loop {
-            let before_length = size_returned;
+            this.size = size_returned as usize;
             let status = unsafe {
                 NtQuerySystemInformation(
                     system_information_class,
@@ -114,8 +113,8 @@ impl Buffer {
             };
 
             if status == STATUS_BUFFER_TOO_SMALL || status == STATUS_INFO_LENGTH_MISMATCH {
-                vfree(buffer, before_length as usize);
-                buffer = valloc(size_returned as usize);
+                this.vfree();
+                buffer = Buffer::valloc(size_returned as usize);
             } else {
                 break status;
             }
@@ -123,7 +122,7 @@ impl Buffer {
 
         if !NT_SUCCESS(status) {
             eprintln!("Failed to query system information.");
-            vfree(buffer, size_returned as usize);
+            this.vfree();
             return Err(status);
         }
 
@@ -177,6 +176,16 @@ impl Buffer {
             String::from_utf16_lossy(name_slice)
         } else {
             String::new()
+        }
+    }
+
+    fn valloc(size: usize) -> *mut winapi::ctypes::c_void {
+        unsafe { VirtualAlloc(ptr::null_mut(), size, MEM_COMMIT, PAGE_READWRITE) }
+    }
+
+    fn vfree(&mut self) {
+        if let Some(buffer) = self.buffer {
+            unsafe { VirtualFree(buffer, self.size, MEM_RELEASE); }
         }
     }
 }
@@ -261,12 +270,4 @@ pub fn open_process(process_id: &u32, access: u32) -> Handle {
 
 pub fn get_file_type(handle: &Handle) -> u32 {
     unsafe { GetFileType(handle.handle) }
-}
-
-fn valloc(size: usize) -> *mut winapi::ctypes::c_void {
-    unsafe { VirtualAlloc(ptr::null_mut(), size, MEM_COMMIT, PAGE_READWRITE) }
-}
-
-fn vfree(buffer: *mut winapi::ctypes::c_void, size: usize) {
-    unsafe { VirtualFree(buffer, size, MEM_RELEASE); }
 }
