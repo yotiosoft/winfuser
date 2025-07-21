@@ -46,8 +46,8 @@ impl Handle {
 
 // SYSTEM_HANDLE_INFORMATION_EX
 pub struct WfSystemHandleInformationEx {
-    pub number_of_handles: usize,
-    pub reserved: usize,
+    pub _number_of_handles: usize,
+    pub _reserved: usize,
     pub handles: Vec<SYSTEM_HANDLE_TABLE_ENTRY_INFO_EX>,
 }
 
@@ -147,8 +147,8 @@ impl Buffer {
             .to_vec();
 
             Some(WfSystemHandleInformationEx {
-                number_of_handles,
-                reserved,
+                _number_of_handles: number_of_handles,
+                _reserved: reserved,
                 handles,
             })
         }
