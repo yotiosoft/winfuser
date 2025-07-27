@@ -1,7 +1,7 @@
 use winprocinfo;
 
 mod winfuser;
-use crate::winfuser::*;
+use winfuser::WinFuserTrait;
 
 mod parse;
 
@@ -22,7 +22,7 @@ fn by_filepath_single(file_path: &str) -> Result<(), winfuser::WinFuserError> {
 }
 
 fn by_filepath(file_paths: Vec<String>) {
-    let proc_opened_files = FileToProcesses::get().map_err(|e| {
+    let proc_opened_files = winfuser::FileToProcesses::get().map_err(|e| {
         println!("Error: {:?}", e);
     }).unwrap();
 
@@ -64,7 +64,7 @@ fn by_pid_single(pid: u32) -> Result<(), winfuser::WinFuserError> {
     Ok(())
 }
 
-fn by_pid(pid: Vec<u32>, process_to_files: &ProcessToFiles) {
+fn by_pid(pid: Vec<u32>, process_to_files: &winfuser::ProcessToFiles) {
     for pid in pid.iter() {
         let process_name = winfuser::get_process_name(&pid);
         if process_name.is_none() {
@@ -87,7 +87,7 @@ fn by_pid(pid: Vec<u32>, process_to_files: &ProcessToFiles) {
 }
 
 fn all_processes() {
-    let proc_opened_files = ProcessToFiles::get().map_err(|e| {
+    let proc_opened_files = winfuser::ProcessToFiles::get().map_err(|e| {
         println!("Error: {:?}", e);
     }).unwrap();
 
@@ -136,7 +136,7 @@ fn main() {
         }
         else if pid.len() > 1 {
             // Get all processes and their opened files.
-            let proc_opened_files = ProcessToFiles::get().map_err(|e| {
+            let proc_opened_files = winfuser::ProcessToFiles::get().map_err(|e| {
                 println!("Error: {:?}", e);
             }).unwrap();
             by_pid(pid, &proc_opened_files);
@@ -147,7 +147,7 @@ fn main() {
         let process_names = args.name_of_process.unwrap();
 
         // Get all processes and their opened files.
-        let proc_opened_files = ProcessToFiles::get().map_err(|e| {
+        let proc_opened_files = winfuser::ProcessToFiles::get().map_err(|e| {
             println!("Error: {:?}", e);
         }).unwrap();
 
