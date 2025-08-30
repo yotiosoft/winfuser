@@ -7,7 +7,6 @@ mod parse;
 
 fn by_filepath_single(file_path: &str) -> Result<(), winfuser::WinFuserError> {
     let pids = winfuser::single::query_pids_by_file(&file_path)?;
-    
     if pids.len() > 0 {
         for pid in pids.iter() {
             if let Some(process_name) = winfuser::get_process_name(pid) {
@@ -21,7 +20,7 @@ fn by_filepath_single(file_path: &str) -> Result<(), winfuser::WinFuserError> {
     Ok(())
 }
 
-fn by_filepath(file_paths: Vec<String>) {
+fn by_filepath(file_paths: Vec<String>, silent: bool) {
     let proc_opened_files = winfuser::FileToProcesses::get().map_err(|e| {
         println!("Error: {:?}", e);
     }).unwrap();
@@ -30,9 +29,14 @@ fn by_filepath(file_paths: Vec<String>) {
         let pids = proc_opened_files.find_pids_by_filepath(&file_path);
         
         if pids.len() > 0 {
-            println!("File: {}", file_path);
+            if silent == false {
+                println!("File: {}", file_path);
+            }
             for pid in pids.iter() {
                 if let Some(process_name) = winfuser::get_process_name(pid) {
+                    if silent == false {
+                        print!("  ");
+                    }
                     println!("Process ID: {} is holding the file. Process Name: {}", pid, process_name);
                 }
             }
@@ -44,7 +48,7 @@ fn by_filepath(file_paths: Vec<String>) {
     }
 }
 
-fn by_pid_single(pid: u32) -> Result<(), winfuser::WinFuserError> {
+fn by_pid_single(pid: u32, silent: bool) -> Result<(), winfuser::WinFuserError> {
     let process_name = winfuser::get_process_name(&pid);
     if process_name.is_none() {
         println!("No process is found with the ID: {}", pid);
@@ -53,8 +57,13 @@ fn by_pid_single(pid: u32) -> Result<(), winfuser::WinFuserError> {
 
     let files = winfuser::single::query_files_by_pid(pid)?;
     if files.len() > 0 {
-        println!("Files opened by process ID: {} (process name: {})", pid, process_name.unwrap());
+        if silent == false {
+            println!("Files opened by process ID: {} (process name: {})", pid, process_name.unwrap());
+        }
         for file in files.iter() {
+            if silent == false {
+                print!("  ");
+            }
             println!("{}", file);
         }
     }
@@ -64,7 +73,7 @@ fn by_pid_single(pid: u32) -> Result<(), winfuser::WinFuserError> {
     Ok(())
 }
 
-fn by_pid(pid: Vec<u32>, process_to_files: &winfuser::ProcessToFiles) {
+fn by_pid(pid: Vec<u32>, process_to_files: &winfuser::ProcessToFiles, silent: bool) {
     for pid in pid.iter() {
         let process_name = winfuser::get_process_name(&pid);
         if process_name.is_none() {
@@ -74,8 +83,13 @@ fn by_pid(pid: Vec<u32>, process_to_files: &winfuser::ProcessToFiles) {
 
         let files = process_to_files.find_files_by_pid(*pid);
         if files.len() > 0 {
-            println!("Files opened by process ID: {}", pid);
+            if silent == false {
+                println!("Files opened by process ID: {} (process name: {})", pid, process_name.unwrap());
+            }
             for file in files.iter() {
+                if silent == false {
+                    print!("  ");
+                }
                 println!("{}", file);
             }
         }
@@ -86,7 +100,7 @@ fn by_pid(pid: Vec<u32>, process_to_files: &winfuser::ProcessToFiles) {
     }
 }
 
-fn all_processes() {
+fn all_processes(silent: bool) {
     let proc_opened_files = winfuser::ProcessToFiles::get().map_err(|e| {
         println!("Error: {:?}", e);
     }).unwrap();
@@ -97,8 +111,13 @@ fn all_processes() {
         let files = process.1;
 
         if files.len() > 0 {
-            println!("Files opened by process ID: {} (process name: {})", pid, process_name);
+            if silent == false {
+                println!("Files opened by process ID: {} (process name: {})", pid, process_name);
+            }
             for file in files.iter() {
+                if silent == false {
+                    print!("  ");
+                }
                 println!("{}", file);
             }
         }
@@ -112,6 +131,7 @@ fn all_processes() {
 fn main() {
     // Parse command line arguments
     let args = parse::parse();
+    let silent = args.silent;
 
     // filepath mode.
     if args.file_path.is_some() {
@@ -122,7 +142,7 @@ fn main() {
             }).unwrap();
         }
         else if file_path.len() > 1 {
-            by_filepath(file_path);
+            by_filepath(file_path, silent);
         }
     }
     // pid mode.
@@ -130,7 +150,7 @@ fn main() {
         let pid = args.pid.unwrap();
 
         if pid.len() == 1 {
-            by_pid_single(pid[0]).map_err(|e| {
+            by_pid_single(pid[0], silent).map_err(|e| {
                 println!("Error: {:?}", e);
             }).unwrap();
         }
@@ -139,7 +159,7 @@ fn main() {
             let proc_opened_files = winfuser::ProcessToFiles::get().map_err(|e| {
                 println!("Error: {:?}", e);
             }).unwrap();
-            by_pid(pid, &proc_opened_files);
+            by_pid(pid, &proc_opened_files, silent);
         }
     }
     // Process name mode.
@@ -164,7 +184,7 @@ fn main() {
             };
 
             if let Some(pids) = pids {
-                by_pid(pids, &proc_opened_files);
+                by_pid(pids, &proc_opened_files, silent);
             }
             else {
                 println!("No process is found with the name.");
@@ -173,6 +193,6 @@ fn main() {
     }
     // All processes mode.
     if args.all {
-        all_processes();
+        all_processes(silent);
     }
 }

@@ -18,6 +18,14 @@ pub struct Args {
     /// All processes.
     #[arg(short, long)]
     pub all: bool,
+
+    /// Show only the names of processes or files.
+    #[arg(short, long)]
+    pub silent: bool,
+
+    // Show the count of processes or files.
+    //#[arg(short, long)]
+    //pub count: bool,
 }
 
 pub fn parse() -> Args {

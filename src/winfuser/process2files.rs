@@ -33,6 +33,8 @@ impl WinFuserTrait for ProcessToFiles {
                         continue;
                     },
                     Err(e) => {
+                        continue;
+                        println!("Error getting filepath for PID {}: {}", pid, e);
                         return Err(e);
                     }
                 }
