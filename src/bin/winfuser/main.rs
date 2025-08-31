@@ -1,6 +1,5 @@
 use winprocinfo;
-
-mod winfuser;
+use winfuser;
 use winfuser::WinFuserTrait;
 
 mod parse;
