@@ -1,6 +1,5 @@
 use ntapi::ntexapi::SystemExtendedHandleInformation;
 
-use super::api;
 use super::*;
 
 pub fn query_files_by_pid(pid: u32) -> Result<Vec<String>, WinFuserError> {

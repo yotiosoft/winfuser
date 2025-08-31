@@ -1,7 +1,6 @@
 use ntapi::ntexapi::SystemExtendedHandleInformation;
 use std::collections::HashMap;
 
-use super::api;
 use super::*;
 
 pub type FileToPidsMap = HashMap<String, Vec<Pid>>;

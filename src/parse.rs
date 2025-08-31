@@ -22,10 +22,6 @@ pub struct Args {
     /// Show only the names of processes or files.
     #[arg(short, long)]
     pub silent: bool,
-
-    // Show the count of processes or files.
-    //#[arg(short, long)]
-    //pub count: bool,
 }
 
 pub fn parse() -> Args {
