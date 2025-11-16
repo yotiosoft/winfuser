@@ -13,7 +13,7 @@ pub struct Args {
 
     /// Process name to search for (ex. notepad.exe).
     #[arg(short, long)]
-    pub name_of_process: Option<Vec<String>>,
+    pub name: Option<Vec<String>>,
 
     /// All processes.
     #[arg(short, long)]
@@ -21,13 +21,13 @@ pub struct Args {
 
     /// Show only the names of processes or files.
     #[arg(short, long)]
-    pub silent: bool,
+    pub quiet: bool,
 }
 
 pub fn parse() -> Args {
     let args = Args::parse();
     // none
-    if args.file_path.is_none() && args.pid.is_none() && args.name_of_process.is_none() && !args.all {
+    if args.file_path.is_none() && args.pid.is_none() && args.name.is_none() && !args.all {
         println!("Please provide either file path with -f or process ID with -p.");
     }
     args

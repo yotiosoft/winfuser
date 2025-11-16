@@ -130,7 +130,7 @@ fn all_processes(silent: bool) {
 fn main() {
     // Parse command line arguments
     let args = parse::parse();
-    let silent = args.silent;
+    let silent = args.quiet;
 
     // filepath mode.
     if args.file_path.is_some() {
@@ -162,8 +162,8 @@ fn main() {
         }
     }
     // Process name mode.
-    if args.name_of_process.is_some() {
-        let process_names = args.name_of_process.unwrap();
+    if args.name.is_some() {
+        let process_names = args.name.unwrap();
 
         // Get all processes and their opened files.
         let proc_opened_files = winfuser::ProcessToFiles::get().map_err(|e| {
