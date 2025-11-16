@@ -13,8 +13,6 @@ It allows you to determine:
 
 It enumerates all process handles in Windows and efficiently maps file paths ↔ processes.
 
----
-
 ## Features
 
 - Low-level Windows API–based handle enumeration (`NtQuerySystemInformation`, etc.)
@@ -23,8 +21,6 @@ It enumerates all process handles in Windows and efficiently maps file paths ↔
 - Search opened files by process name
 - Display all processes and their opened files
 - Usable both as a CLI tool and as a Rust library
-
----
 
 ## Installation
 
@@ -61,13 +57,21 @@ Options:
 
 ### Examples
 1. List processes that have opened a specific file
-winfuser -f C:\path\to\file.txt
+   ```powershell
+   winfuser -f C:\path\to\file.txt
+   ```
 
-2. List files opened by a specific PID
-winfuser -p 1234
+1. List files opened by a specific PID
+   ```powershell
+   winfuser -p 1234
+   ```
 
-3. List files opened by process name
-winfuser -n notepad.exe
+1. List files opened by process name
+   ```powershell
+   winfuser -n notepad.exe
+   ```
 
-4. Show all processes and their opened files
-winfuser -a
+1. Show all processes and their opened files
+   ```powershell
+   winfuser -a
+   ```
